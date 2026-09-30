@@ -1,0 +1,2779 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Advanced Grading Console — upload marks, validate data, review analytics, simulate grade schemes and export final grades. Runs entirely in the browser.">
+<title>BITS Pilani Digital – Advanced Grading Console</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%235b3cc4'/%3E%3Cpath d='M9 17l5 5 9-11' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<script>
+/* Apply the saved theme before first paint so there is no light/dark flash. */
+(function(){
+  var t=null;
+  try{ t=localStorage.getItem('gc-theme'); }catch(e){}
+  if(t!=='light' && t!=='dark'){
+    t=(window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';
+  }
+  document.documentElement.setAttribute('data-theme',t);
+})();
+</script>
+<!-- SheetJS: local copy first (works offline when deployed alongside), then CDN fallbacks. -->
+<script src="xlsx.full.min.js"
+  onerror="this.onerror=null;var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';s.onerror=function(){var j=document.createElement('script');j.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';document.head.appendChild(j);};document.head.appendChild(s);"></script>
+
+<style>
+/* =========================================================
+   DESIGN TOKENS
+   ========================================================= */
+:root{
+  --bg:#f6f5fb;
+  --surface:#ffffff;
+  --surface-secondary:#f4f3fa;
+  --surface-sunken:#eeecf7;
+  --text:#17152b;
+  --text-secondary:#5a5775;
+  --text-tertiary:#7a7794;
+  --border:#e3e1ee;
+  --border-strong:#cfcce0;
+  --primary:#5b3cc4;
+  --primary-hover:#4c30ab;
+  --primary-soft:#efebfd;
+  --primary-soft-2:#e2dbfb;
+  --on-primary:#ffffff;
+  --success:#047857;
+  --success-soft:#e6f5ee;
+  --warning:#a15c07;
+  --warning-soft:#fdf3e2;
+  --danger:#b42318;
+  --danger-soft:#fdeceb;
+  --info:#1d4ed8;
+  --info-soft:#e8effd;
+  --focus:#7c5cf0;
+  --shadow-sm:0 1px 2px rgba(23,21,43,.06);
+  --shadow:0 1px 2px rgba(23,21,43,.05),0 4px 14px rgba(23,21,43,.06);
+  --shadow-lg:0 12px 40px rgba(23,21,43,.18);
+  --chart-bar:#5b3cc4;
+  --chart-grid:#ebe9f3;
+  --chart-text:#5a5775;
+  --chart-curve:#d9480f;
+  --chart-mean:#17152b;
+  --chart-band-a:rgba(91,60,196,.07);
+  --chart-band-b:rgba(91,60,196,.02);
+  --sim-current:#a9a6be;
+  --radius:12px;
+  --radius-sm:8px;
+  --t-micro:150ms;
+  --t-normal:220ms;
+  --t-panel:300ms;
+  --ease:cubic-bezier(.2,.7,.2,1);
+  --font:"Segoe UI",system-ui,-apple-system,Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+}
+:root[data-theme="dark"]{
+  --bg:#0e0d16;
+  --surface:#17162a;
+  --surface-secondary:#1f1d35;
+  --surface-sunken:#131224;
+  --text:#ecebf6;
+  --text-secondary:#aeabc6;
+  --text-tertiary:#8d8aa8;
+  --border:#2c2a45;
+  --border-strong:#3c3a5a;
+  --primary:#9d86ff;
+  --primary-hover:#b2a0ff;
+  --primary-soft:#262245;
+  --primary-soft-2:#302a5a;
+  --on-primary:#120c2e;
+  --success:#3ecf95;
+  --success-soft:rgba(62,207,149,.12);
+  --warning:#f5b942;
+  --warning-soft:rgba(245,185,66,.12);
+  --danger:#ff7b72;
+  --danger-soft:rgba(255,123,114,.12);
+  --info:#6ea8ff;
+  --info-soft:rgba(110,168,255,.12);
+  --focus:#b7a6ff;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.4);
+  --shadow:0 1px 2px rgba(0,0,0,.35),0 6px 18px rgba(0,0,0,.25);
+  --shadow-lg:0 16px 48px rgba(0,0,0,.55);
+  --chart-bar:#9d86ff;
+  --chart-grid:#29273f;
+  --chart-text:#aeabc6;
+  --chart-curve:#ff9a5a;
+  --chart-mean:#ecebf6;
+  --chart-band-a:rgba(157,134,255,.10);
+  --chart-band-b:rgba(157,134,255,.03);
+  --sim-current:#5e5b7c;
+}
+
+/* =========================================================
+   BASE
+   ========================================================= */
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;
+  font-family:var(--font);
+  font-size:14px;
+  line-height:1.5;
+  background:var(--bg);
+  color:var(--text);
+  transition:background-color var(--t-normal) ease,color var(--t-normal) ease;
+}
+h1,h2,h3,h4{margin:0;line-height:1.25}
+p{margin:0}
+button,input,select{font:inherit;color:inherit}
+.sr-only{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.num{font-variant-numeric:tabular-nums}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.skip-link{position:absolute;left:12px;top:-60px;background:var(--primary);color:var(--on-primary);padding:8px 12px;border-radius:8px;z-index:100;transition:top var(--t-micro)}
+.skip-link:focus{top:12px}
+
+.container{max-width:1240px;margin:0 auto;padding:16px 20px 40px}
+
+/* =========================================================
+   HEADER
+   ========================================================= */
+.app-header{
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:12px 16px;box-shadow:var(--shadow-sm);margin-bottom:14px;flex-wrap:wrap;
+}
+.brand{display:flex;align-items:center;gap:12px;min-width:0}
+.brand-mark{width:36px;height:36px;border-radius:10px;background:var(--primary);display:grid;place-items:center;flex:none}
+.brand-mark svg{width:20px;height:20px}
+.brand-mark path{stroke:var(--on-primary)}
+.brand h1{font-size:13px;font-weight:600;color:var(--text-secondary);letter-spacing:.2px}
+.brand h2{font-size:17px;font-weight:650;color:var(--text)}
+.header-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+.status-pill{
+  display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;
+  font-size:12px;font-weight:600;background:var(--surface-secondary);color:var(--text-secondary);
+  border:1px solid var(--border);white-space:nowrap;
+  transition:background-color var(--t-normal),color var(--t-normal),border-color var(--t-normal);
+}
+.status-pill .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.status-pill[data-state="ready"]{background:var(--success-soft);color:var(--success);border-color:transparent}
+.status-pill[data-state="warning"]{background:var(--warning-soft);color:var(--warning);border-color:transparent}
+.status-pill[data-state="error"]{background:var(--danger-soft);color:var(--danger);border-color:transparent}
+.status-pill[data-state="done"]{background:var(--primary-soft);color:var(--primary);border-color:transparent}
+
+/* Timer (preserved feature) */
+.timer{display:flex;align-items:center;gap:8px;padding:3px 10px 3px 4px;border-radius:999px;border:1px solid var(--border);background:var(--surface)}
+.timer svg{transform:rotate(-90deg);display:block}
+.timer .track{stroke:var(--primary-soft-2)}
+.timer .arc{stroke:var(--primary);transition:stroke-dashoffset .9s linear}
+.timer-meta{display:flex;flex-direction:column;line-height:1.1}
+.timer-label{font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px}
+.timer-text{font-size:13px;font-weight:650;color:var(--text)}
+.timer[data-state="paused"] .arc{stroke:var(--success)}
+
+/* Theme toggle */
+.theme-toggle{
+  display:inline-flex;align-items:center;gap:8px;background:none;border:1px solid var(--border);
+  border-radius:999px;padding:4px 10px 4px 10px;cursor:pointer;font-size:11px;font-weight:650;
+  letter-spacing:.5px;color:var(--text-secondary);
+  transition:border-color var(--t-micro),background-color var(--t-micro);
+}
+.theme-toggle:hover{border-color:var(--border-strong);background:var(--surface-secondary)}
+.theme-toggle .lbl{transition:color var(--t-normal)}
+.theme-toggle[aria-checked="false"] .lbl-light,.theme-toggle[aria-checked="true"] .lbl-dark{color:var(--primary)}
+.switch-track{
+  position:relative;width:38px;height:22px;border-radius:999px;background:var(--surface-sunken);
+  border:1px solid var(--border-strong);transition:background-color var(--t-normal);
+}
+.switch-thumb{
+  position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--primary);
+  box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform var(--t-normal) var(--ease);
+  display:grid;place-items:center;font-size:10px;color:var(--on-primary);
+}
+[aria-checked="true"] > .switch-track .switch-thumb{transform:translateX(16px)}
+
+/* =========================================================
+   BUTTONS
+   ========================================================= */
+.btn{
+  --btn-bg:var(--surface);--btn-fg:var(--text);--btn-border:var(--border-strong);
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  min-height:38px;padding:8px 14px;border-radius:var(--radius-sm);
+  background:var(--btn-bg);color:var(--btn-fg);border:1px solid var(--btn-border);
+  font-weight:600;font-size:13.5px;cursor:pointer;white-space:nowrap;position:relative;
+  box-shadow:var(--shadow-sm);
+  transition:transform var(--t-micro) var(--ease),box-shadow var(--t-micro),background-color var(--t-micro),border-color var(--t-micro),opacity var(--t-micro);
+}
+.btn:hover:not(:disabled){transform:translateY(-1px);box-shadow:var(--shadow)}
+.btn:active:not(:disabled){transform:translateY(0) scale(.985);box-shadow:var(--shadow-sm)}
+.btn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+.btn-primary{--btn-bg:var(--primary);--btn-fg:var(--on-primary);--btn-border:var(--primary)}
+.btn-primary:hover:not(:disabled){--btn-bg:var(--primary-hover);--btn-border:var(--primary-hover)}
+.btn-ghost{--btn-bg:transparent;--btn-border:transparent;box-shadow:none;color:var(--text-secondary)}
+.btn-ghost:hover:not(:disabled){--btn-bg:var(--surface-secondary);box-shadow:none;transform:none}
+.btn-danger{--btn-bg:var(--danger);--btn-fg:#fff;--btn-border:var(--danger)}
+:root[data-theme="dark"] .btn-danger{--btn-fg:#2a0906}
+.btn-sm{min-height:30px;padding:4px 10px;font-size:12.5px}
+.btn-icon{width:34px;min-height:34px;padding:0;border-radius:50%}
+.btn .spinner{display:none}
+.btn.is-loading{color:transparent!important;pointer-events:none}
+.btn.is-loading .spinner{display:block;position:absolute;inset:0;margin:auto;border-color:var(--btn-fg);border-right-color:transparent}
+.btn.is-success{--btn-bg:var(--success);--btn-border:var(--success);--btn-fg:#fff}
+:root[data-theme="dark"] .btn.is-success{--btn-fg:#04261a}
+.btn svg{width:16px;height:16px;flex:none}
+
+.spinner{width:16px;height:16px;border:2px solid var(--primary);border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* =========================================================
+   FORM CONTROLS
+   ========================================================= */
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.field label,.field .label{font-size:12.5px;font-weight:600;color:var(--text-secondary)}
+.req{color:var(--danger)}
+.input,.select{
+  width:100%;min-height:38px;padding:8px 11px;border-radius:var(--radius-sm);
+  border:1px solid var(--border-strong);background:var(--surface);color:var(--text);
+  transition:border-color var(--t-micro),box-shadow var(--t-micro),background-color var(--t-micro);
+}
+.select{appearance:none;-webkit-appearance:none;padding-right:32px;cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238d8aa8' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 11px center}
+.input:hover,.select:hover:not(:disabled){border-color:var(--text-tertiary)}
+.input:focus,.select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft-2)}
+.input[aria-invalid="true"]{border-color:var(--danger);box-shadow:0 0 0 3px var(--danger-soft)}
+.select:disabled,.input:disabled{opacity:.55;cursor:not-allowed;background-color:var(--surface-secondary)}
+.hint{font-size:12px;color:var(--text-tertiary)}
+.hint.error{color:var(--danger)}
+.checkbox{display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-size:13.5px}
+.checkbox input{width:18px;height:18px;margin:1px 0 0;accent-color:var(--primary);flex:none;cursor:pointer}
+
+.switch{display:inline-flex;align-items:center;gap:10px;background:none;border:none;padding:4px 0;cursor:pointer;font-size:13px;color:var(--text-secondary);font-weight:600}
+.switch .switch-track{width:34px;height:20px}
+.switch .switch-thumb{width:14px;height:14px}
+.switch[aria-checked="true"] .switch-track{background:var(--primary-soft-2)}
+.switch[aria-checked="false"] .switch-thumb{background:var(--text-tertiary)}
+.switch[aria-checked="true"] .switch-track .switch-thumb{transform:translateX(14px)}
+
+/* =========================================================
+   LAYOUT & CARDS
+   ========================================================= */
+.card{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  box-shadow:var(--shadow-sm);padding:16px;min-width:0;
+  transition:background-color var(--t-normal),border-color var(--t-normal);
+}
+.card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.card-title{font-size:15px;font-weight:650}
+.card-sub{font-size:12.5px;color:var(--text-secondary);margin-top:2px}
+.eyebrow{font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text-tertiary);margin:22px 2px 10px}
+.eyebrow:first-child{margin-top:0}
+
+.setup-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);gap:14px}
+.session-fields{display:grid;gap:14px}
+.welcome{min-height:22px;font-size:14px;font-weight:600;color:var(--primary)}
+.welcome.show{animation:fadeSlide var(--t-panel) var(--ease)}
+@keyframes fadeSlide{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+/* Upload */
+.dropzone{
+  border:1.5px dashed var(--border-strong);border-radius:var(--radius);padding:14px;
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:var(--surface-secondary);
+  transition:border-color var(--t-micro),background-color var(--t-micro);
+}
+.dropzone.drag{border-color:var(--primary);background:var(--primary-soft)}
+.dropzone-text{flex:1;min-width:180px}
+.dropzone-text strong{display:block;font-size:13.5px}
+.dropzone-text span{font-size:12px;color:var(--text-tertiary)}
+.file-guidance{margin-top:10px;font-size:12.5px;color:var(--text-secondary);border-radius:var(--radius-sm)}
+.file-guidance summary{cursor:pointer;font-weight:600;color:var(--primary);padding:4px 0;width:max-content;max-width:100%}
+.file-guidance summary:focus-visible{border-radius:4px}
+.file-guidance .fg-body{padding:8px 12px;background:var(--surface-secondary);border-radius:var(--radius-sm);margin-top:4px}
+.file-guidance p{margin:4px 0;line-height:1.55}
+
+.data-status{margin-top:12px}
+.loading-steps{list-style:none;margin:0;padding:10px 12px;display:grid;gap:6px;background:var(--surface-secondary);border-radius:var(--radius-sm)}
+.loading-steps li{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-tertiary)}
+.loading-steps li .ico{width:16px;height:16px;display:grid;place-items:center}
+.loading-steps li.active{color:var(--text)}
+.loading-steps li.done{color:var(--success)}
+.progress{height:4px;border-radius:99px;background:var(--surface-sunken);overflow:hidden;margin-top:4px}
+.progress > span{display:block;height:100%;background:var(--primary);width:0;transition:width var(--t-normal) var(--ease)}
+
+.check-list{list-style:none;margin:0;padding:0;display:grid;gap:5px}
+.check-list li{display:flex;gap:8px;align-items:flex-start;font-size:13.5px}
+.check-list .ico{flex:none;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:800;margin-top:1px}
+.ico-ok{background:var(--success-soft);color:var(--success)}
+.ico-warn{background:var(--warning-soft);color:var(--warning)}
+.ico-err{background:var(--danger-soft);color:var(--danger)}
+.ico-info{background:var(--info-soft);color:var(--info)}
+.issue-summary{margin:8px 0 0 26px;padding:0;list-style:disc;color:var(--text-secondary);font-size:13px}
+.status-enter{animation:fadeSlide var(--t-normal) var(--ease)}
+.status-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.privacy-note{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--text-tertiary);margin-top:10px}
+
+/* Banners */
+.banner{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:var(--radius-sm);font-size:13px;margin-bottom:12px}
+.banner-warn{background:var(--warning-soft);color:var(--text)}
+.banner-warn .b-ico{color:var(--warning)}
+.banner-err{background:var(--danger-soft);color:var(--text)}
+.banner-err .b-ico{color:var(--danger)}
+.banner-info{background:var(--info-soft);color:var(--text)}
+.banner-info .b-ico{color:var(--info)}
+.b-ico{font-weight:800;flex:none}
+.linkish{background:none;border:none;padding:0;color:var(--primary);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+
+/* Empty states */
+.empty{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
+  gap:10px;padding:36px 16px;color:var(--text-secondary);
+}
+.empty-ico{width:48px;height:48px;border-radius:14px;background:var(--primary-soft);color:var(--primary);display:grid;place-items:center}
+.empty-ico svg{width:24px;height:24px}
+.empty strong{color:var(--text);font-size:15px}
+.empty p{max-width:420px;font-size:13px}
+.getting-started{list-style:none;padding:0;margin:8px 0 0;display:grid;gap:8px;text-align:left}
+.getting-started li{display:flex;gap:10px;align-items:center;font-size:13.5px}
+.getting-started .ico{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;background:var(--surface-sunken);color:var(--text-tertiary);flex:none}
+.getting-started li.done .ico{background:var(--success-soft);color:var(--success)}
+.getting-started li.done span.t{color:var(--text-tertiary);text-decoration:line-through}
+
+/* KPIs */
+.kpis{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px}
+.kpi{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;
+  box-shadow:var(--shadow-sm);
+  transition:transform var(--t-normal) var(--ease),box-shadow var(--t-normal),border-color var(--t-normal);
+}
+.kpi:hover{transform:translateY(-2px);box-shadow:var(--shadow);border-color:var(--primary-soft-2)}
+.kpi-label{font-size:12px;color:var(--text-secondary);font-weight:600;display:flex;align-items:center;gap:4px}
+.kpi-value{font-size:22px;font-weight:700;margin-top:2px;letter-spacing:-.3px}
+.kpi-foot{font-size:11.5px;color:var(--text-tertiary)}
+.kpi-value.bump{animation:bump var(--t-panel) var(--ease)}
+@keyframes bump{0%{color:var(--primary)}100%{color:inherit}}
+
+.main-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:14px;margin-top:14px;align-items:start}
+.stack{display:grid;gap:14px;min-width:0}
+
+/* Histogram */
+.chart-wrap{position:relative;width:100%;height:270px}
+.chart-wrap canvas{width:100%;height:100%;display:block}
+.chart-tip{
+  position:absolute;pointer-events:none;background:var(--text);color:var(--bg);font-size:12px;
+  padding:6px 9px;border-radius:6px;white-space:nowrap;opacity:0;transform:translate(-50%,-110%);
+  transition:opacity var(--t-micro);z-index:2;box-shadow:var(--shadow);
+}
+.chart-tip.show{opacity:1}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--text-secondary);margin-top:8px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+.sw-line{width:16px;height:0;border-top:2px solid;display:inline-block}
+.sw-dash{width:16px;height:0;border-top:2px dashed;display:inline-block}
+
+/* Distribution bars */
+.dist{display:grid;gap:7px}
+.dist-row{display:grid;grid-template-columns:34px minmax(0,1fr) 78px;align-items:center;gap:10px;font-size:13px}
+.dist-grade{font-weight:700}
+.dist-track{height:18px;background:var(--surface-sunken);border-radius:5px;overflow:hidden}
+.dist-fill{height:100%;background:var(--chart-bar);border-radius:5px;width:0;transition:width var(--t-panel) var(--ease)}
+.dist-fill.fail{background:var(--danger)}
+.dist-val{text-align:right;color:var(--text-secondary);font-variant-numeric:tabular-nums;white-space:nowrap}
+.dist-val b{color:var(--text)}
+
+/* Grade configuration */
+.cfg-toolbar{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between;margin-bottom:12px}
+.cfg-toolbar .pass{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);font-weight:600}
+.cfg-toolbar .pass .select{width:auto;min-height:32px;padding:4px 30px 4px 10px}
+
+.scale{margin:6px 0 18px}
+.density{position:relative;height:26px}
+.density i{position:absolute;bottom:0;width:calc(100%/101 - 1px);background:var(--primary);opacity:.45;border-radius:2px 2px 0 0}
+.track{
+  position:relative;height:30px;border-radius:7px;overflow:visible;
+  background:repeating-linear-gradient(45deg,var(--danger-soft) 0 6px,transparent 6px 12px);
+  border:1px solid var(--border);
+}
+.seg{
+  position:absolute;top:0;bottom:0;display:grid;place-items:center;font-size:11px;font-weight:700;
+  color:var(--text);border-right:1px solid var(--surface);overflow:hidden;
+  transition:left var(--t-micro) linear,width var(--t-micro) linear,background-color var(--t-normal);
+}
+.seg:nth-child(odd){background:var(--primary-soft-2)}
+.seg:nth-child(even){background:var(--primary-soft)}
+.seg.bad{background:var(--danger-soft);outline:2px solid var(--danger);outline-offset:-2px;z-index:1}
+.handle{
+  position:absolute;top:-5px;bottom:-5px;width:14px;margin-left:-7px;cursor:ew-resize;z-index:3;
+  background:none;border:none;padding:0;touch-action:none;
+}
+.handle::before{content:"";position:absolute;left:5px;top:0;bottom:0;width:4px;border-radius:3px;background:var(--primary);box-shadow:0 0 0 2px var(--surface);transition:transform var(--t-micro),background-color var(--t-micro)}
+.handle:hover::before,.handle.dragging::before{transform:scaleX(1.5)}
+.handle:focus-visible{outline:none}
+.handle:focus-visible::before{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--focus)}
+.handle .val{position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:3px;font-size:10.5px;font-weight:700;color:var(--text-secondary);font-variant-numeric:tabular-nums}
+.axis{display:flex;justify-content:space-between;font-size:10.5px;color:var(--text-tertiary);margin-top:18px}
+.scale-note{font-size:12px;color:var(--text-tertiary);margin-top:4px}
+
+.bands{display:grid;gap:6px}
+.band{
+  display:grid;grid-template-columns:44px minmax(0,1fr) 14px minmax(0,1fr) 64px;align-items:center;gap:8px;
+  padding:6px 8px;border-radius:var(--radius-sm);border:1px solid transparent;
+  transition:background-color var(--t-micro),border-color var(--t-micro),transform var(--t-micro);
+}
+.band:hover{background:var(--surface-secondary)}
+.band.lift{transform:translateY(-1px);border-color:var(--primary-soft-2);background:var(--surface-secondary)}
+.band.has-error{border-color:var(--danger);background:var(--danger-soft)}
+.band-grade{font-weight:750;font-size:14px;text-align:center;border-radius:6px;padding:4px 0;background:var(--primary-soft);color:var(--primary)}
+.band .input{min-height:34px;padding:5px 8px;text-align:center;font-variant-numeric:tabular-nums}
+.band .input[readonly]{background:var(--surface-secondary);color:var(--text-secondary);cursor:not-allowed}
+.band .dash{text-align:center;color:var(--text-tertiary)}
+.band-count{text-align:right;font-size:12px;color:var(--text-secondary);font-variant-numeric:tabular-nums}
+.bands-head{display:grid;grid-template-columns:44px minmax(0,1fr) 14px minmax(0,1fr) 64px;gap:8px;padding:0 8px;font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px}
+.bands-head span:last-child{text-align:right}
+
+.validation{margin-top:12px;padding:10px 12px;border-radius:var(--radius-sm);font-size:13px;transition:background-color var(--t-normal)}
+.validation.ok{background:var(--success-soft)}
+.validation.ok strong{color:var(--success)}
+.validation.bad{background:var(--danger-soft)}
+.validation.bad strong{color:var(--danger)}
+.validation ul{margin:6px 0 0;padding-left:18px}
+.cfg-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+
+/* Simulator */
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap}
+.badge-sim{background:var(--warning-soft);color:var(--warning)}
+.badge-ok{background:var(--success-soft);color:var(--success)}
+.badge-muted{background:var(--surface-secondary);color:var(--text-secondary)}
+.badge-sim .pulse-dot{width:7px;height:7px;border-radius:50%;background:currentColor;animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.35}}
+.impact{display:flex;align-items:baseline;gap:8px;padding:12px 14px;border-radius:var(--radius-sm);background:var(--surface-secondary);margin-bottom:12px;flex-wrap:wrap}
+.impact .big{font-size:26px;font-weight:750;color:var(--primary);letter-spacing:-.4px}
+.impact .txt{font-size:13.5px;color:var(--text-secondary)}
+.sim-table{width:100%;border-collapse:collapse;font-size:13px}
+.sim-table th{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-tertiary);font-weight:700;text-align:left;padding:4px 6px}
+.sim-table td{padding:5px 6px;border-top:1px solid var(--border)}
+.sim-table td.n{text-align:right;font-variant-numeric:tabular-nums;width:56px}
+.sim-bars{display:grid;gap:2px;min-width:80px}
+.sim-bars span{height:6px;border-radius:3px;transition:width var(--t-panel) var(--ease);min-width:2px}
+.sim-bars .cur{background:var(--sim-current)}
+.sim-bars .new{background:var(--primary)}
+.delta{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.delta.up{color:var(--success)}
+.delta.down{color:var(--danger)}
+.delta.zero{color:var(--text-tertiary);font-weight:500}
+.transitions{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.chip{
+  display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12.5px;
+  border:1px solid var(--border-strong);background:var(--surface);cursor:pointer;font-weight:600;
+  transition:background-color var(--t-micro),border-color var(--t-micro),transform var(--t-micro);
+}
+.chip:hover{border-color:var(--primary);background:var(--primary-soft);transform:translateY(-1px)}
+.chip[aria-pressed="true"]{background:var(--primary);color:var(--on-primary);border-color:var(--primary)}
+.chip .cnt{font-variant-numeric:tabular-nums;opacity:.8}
+.chip.static{cursor:default}
+.chip.static:hover{transform:none;background:var(--surface);border-color:var(--border-strong)}
+.sim-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid var(--border)}
+.sim-empty{font-size:13px;color:var(--text-secondary);padding:6px 0}
+.scheme-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.scheme-chips span{font-size:12px;padding:3px 8px;border-radius:6px;background:var(--surface-secondary);border:1px solid var(--border);font-variant-numeric:tabular-nums}
+.scheme-chips b{margin-right:4px}
+
+/* Student table */
+.table-tools{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:12px}
+.table-tools .field{flex:1 1 180px}
+.table-tools .field.narrow{flex:0 1 150px}
+.search-wrap{position:relative}
+.search-wrap svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--text-tertiary);pointer-events:none}
+.search-wrap .input{padding-left:32px}
+.filter-chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.table-scroll{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius-sm)}
+table.students{width:100%;border-collapse:collapse;font-size:13.5px}
+table.students th{
+  position:sticky;top:0;background:var(--surface-secondary);text-align:left;font-size:12px;font-weight:700;
+  color:var(--text-secondary);padding:0;border-bottom:1px solid var(--border);white-space:nowrap
+}
+table.students th .th-btn{display:flex;align-items:center;gap:4px;width:100%;background:none;border:none;padding:10px 12px;font-weight:700;color:inherit;cursor:pointer;text-align:left}
+table.students th .th-btn:hover{color:var(--text)}
+table.students th .th-static{display:block;padding:10px 12px}
+table.students th .arrow{opacity:.35;font-size:10px}
+table.students th[aria-sort="ascending"] .arrow,table.students th[aria-sort="descending"] .arrow{opacity:1;color:var(--primary)}
+table.students td{padding:9px 12px;border-bottom:1px solid var(--border)}
+table.students tbody tr{cursor:pointer;transition:background-color var(--t-micro)}
+table.students tbody tr:hover{background:var(--surface-secondary)}
+table.students tbody tr[aria-selected="true"]{background:var(--primary-soft);box-shadow:inset 3px 0 0 var(--primary)}
+table.students tbody tr:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+table.students tbody tr:last-child td{border-bottom:none}
+td.mono{font-family:var(--mono);font-size:12.5px}
+td.r,th.r{text-align:right}
+th.r .th-btn{justify-content:flex-end}
+.gpill{display:inline-block;min-width:30px;text-align:center;padding:2px 7px;border-radius:6px;font-weight:700;font-size:12.5px;background:var(--primary-soft);color:var(--primary)}
+.gpill.fail{background:var(--danger-soft);color:var(--danger)}
+.gchange{display:inline-flex;align-items:center;gap:6px}
+.gchange .arrowx{color:var(--text-tertiary)}
+.near{display:inline-block;margin-left:6px;font-size:11px;font-weight:600;color:var(--warning);white-space:nowrap}
+.table-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap;font-size:12.5px;color:var(--text-secondary)}
+.pager{display:flex;gap:6px;align-items:center}
+
+/* Review */
+.review-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}
+.summary-dl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0}
+.summary-dl div{background:var(--surface-secondary);border-radius:var(--radius-sm);padding:9px 11px;min-width:0}
+.summary-dl dt{font-size:11.5px;color:var(--text-tertiary);font-weight:600}
+.summary-dl dd{margin:2px 0 0;font-weight:700;font-size:14px;overflow-wrap:anywhere}
+.sub-title{font-size:12px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px;margin:16px 0 8px}
+.segmented{display:inline-flex;border:1px solid var(--border-strong);border-radius:var(--radius-sm);overflow:hidden;background:var(--surface)}
+.segmented label{position:relative;cursor:pointer}
+.segmented input{position:absolute;opacity:0;pointer-events:none}
+.segmented span{display:block;padding:6px 12px;font-size:13px;font-weight:600;color:var(--text-secondary);transition:background-color var(--t-micro),color var(--t-micro)}
+.segmented label + label span{border-left:1px solid var(--border-strong)}
+.segmented input:checked + span{background:var(--primary);color:var(--on-primary)}
+.segmented input:focus-visible + span{outline:2px solid var(--focus);outline-offset:-2px}
+.finalize-box{border:1px solid var(--border);border-radius:var(--radius);padding:14px;background:var(--surface-secondary);display:grid;gap:12px}
+.change-note{font-size:13px;padding:9px 11px;border-radius:var(--radius-sm);background:var(--info-soft)}
+.done-box{display:flex;gap:12px;align-items:center;padding:12px;border-radius:var(--radius-sm);background:var(--success-soft);animation:fadeSlide var(--t-panel) var(--ease)}
+.done-box p{font-size:13.5px}
+.check-anim{width:34px;height:34px;flex:none}
+.check-anim circle{stroke:var(--success);fill:none;stroke-width:3;stroke-dasharray:101;stroke-dashoffset:101;animation:draw .45s var(--ease) forwards}
+.check-anim path{stroke:var(--success);fill:none;stroke-width:3.5;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:30;stroke-dashoffset:30;animation:draw .3s .3s var(--ease) forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+
+/* Toasts */
+.toasts{position:fixed;right:16px;bottom:16px;display:grid;gap:8px;z-index:60;width:min(380px,calc(100vw - 32px))}
+.toast{
+  display:grid;grid-template-columns:22px minmax(0,1fr) 28px;gap:10px;align-items:start;
+  background:var(--surface);color:var(--text);border:1px solid var(--border);border-left:4px solid var(--info);
+  border-radius:10px;padding:10px 10px 10px 12px;box-shadow:var(--shadow-lg);font-size:13.5px;
+  animation:toastIn var(--t-normal) var(--ease);
+}
+.toast.leaving{animation:toastOut var(--t-normal) var(--ease) forwards}
+.toast-success{border-left-color:var(--success)}
+.toast-warning{border-left-color:var(--warning)}
+.toast-error{border-left-color:var(--danger)}
+.toast .t-ico{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:800}
+.toast-success .t-ico{background:var(--success-soft);color:var(--success)}
+.toast-warning .t-ico{background:var(--warning-soft);color:var(--warning)}
+.toast-error .t-ico{background:var(--danger-soft);color:var(--danger)}
+.toast-info .t-ico{background:var(--info-soft);color:var(--info)}
+.toast strong{display:block;font-size:13.5px}
+.toast p{color:var(--text-secondary);font-size:12.5px;margin-top:1px}
+.toast .close{width:28px;height:28px;border-radius:6px;border:none;background:none;color:var(--text-tertiary);cursor:pointer;font-size:16px;line-height:1}
+.toast .close:hover{background:var(--surface-secondary);color:var(--text)}
+@keyframes toastIn{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes toastOut{to{opacity:0;transform:translateX(24px)}}
+
+/* Dialogs */
+dialog{
+  border:1px solid var(--border);border-radius:14px;padding:0;background:var(--surface);color:var(--text);
+  box-shadow:var(--shadow-lg);width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 48px);
+}
+dialog.wide{width:min(860px,calc(100vw - 32px))}
+dialog[open]{animation:dialogIn var(--t-panel) var(--ease)}
+dialog.closing{animation:dialogOut var(--t-normal) var(--ease) forwards}
+dialog::backdrop{background:rgba(14,12,30,.45)}
+dialog[open]::backdrop{animation:fadeIn var(--t-panel) ease}
+@keyframes dialogIn{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes dialogOut{to{opacity:0;transform:translateY(6px) scale(.98)}}
+@keyframes fadeIn{from{opacity:0}}
+.dlg-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--border)}
+.dlg-head h3{font-size:16px}
+.dlg-body{padding:16px 18px;overflow:auto;max-height:calc(100vh - 190px);font-size:13.5px}
+.dlg-body p + p{margin-top:8px}
+.dlg-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid var(--border);flex-wrap:wrap}
+.issues-table{width:100%;border-collapse:collapse;font-size:12.5px}
+.issues-table th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-tertiary);padding:6px 8px;border-bottom:1px solid var(--border);position:sticky;top:-16px;background:var(--surface)}
+.issues-table td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+.issues-table td:nth-child(3),.issues-table td:nth-child(4){white-space:nowrap}
+.sev{display:inline-flex;align-items:center;gap:4px;font-weight:700;font-size:11.5px;padding:2px 7px;border-radius:5px;white-space:nowrap}
+.sev-error{background:var(--danger-soft);color:var(--danger)}
+.sev-warning{background:var(--warning-soft);color:var(--warning)}
+.sev-info{background:var(--info-soft);color:var(--info)}
+.help h4{font-size:13.5px;margin:14px 0 6px}
+.help h4:first-child{margin-top:0}
+.help ul{margin:0;padding-left:18px;color:var(--text-secondary)}
+.help li{margin:3px 0}
+kbd{font-family:var(--mono);font-size:11.5px;padding:1px 5px;border-radius:4px;border:1px solid var(--border-strong);background:var(--surface-secondary)}
+
+.app-footer{margin-top:28px;text-align:center;font-size:12px;color:var(--text-tertiary)}
+
+.hidden{display:none!important}
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+@media (max-width:1100px){
+  .kpis{grid-template-columns:repeat(4,minmax(0,1fr))}
+}
+@media (max-width:1024px){
+  .main-grid{grid-template-columns:minmax(0,1fr)}
+  .review-grid{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:820px){
+  .setup-grid{grid-template-columns:minmax(0,1fr)}
+  .summary-dl{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:640px){
+  .container{padding:12px 12px 32px}
+  .app-header{padding:10px 12px}
+  .header-tools{width:100%;justify-content:space-between}
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .kpi-value{font-size:19px}
+  .chart-wrap{height:230px}
+  .band{grid-template-columns:48px minmax(0,1fr) 10px minmax(0,1fr) 58px;gap:6px;padding:6px 4px}
+  .bands-head{grid-template-columns:48px minmax(0,1fr) 10px minmax(0,1fr) 58px;gap:6px;padding:0 4px;letter-spacing:0}
+  /* Student table becomes stacked cards */
+  .table-scroll{border:none;overflow:visible}
+  table.students thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+  table.students,table.students tbody{display:block}
+  table.students tbody tr{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:8px}
+  table.students td{display:flex;flex-direction:column;border:none;padding:0;text-align:left!important}
+  table.students td::before{content:attr(data-label);font-size:11px;font-weight:600;color:var(--text-tertiary);font-family:var(--font)}
+  .toasts{right:12px;left:12px;width:auto;bottom:12px}
+  .dlg-foot .btn{flex:1}
+  .issues-table thead{display:none}
+  .issues-table tr{display:block;border-bottom:1px solid var(--border);padding:6px 0}
+  .issues-table td{display:block;border:none;padding:2px 0}
+}
+
+/* =========================================================
+   REDUCED MOTION
+   ========================================================= */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation-duration:.01ms!important;animation-iteration-count:1!important;
+    transition-duration:.01ms!important;scroll-behavior:auto!important;
+  }
+  .btn:hover:not(:disabled),.kpi:hover,.chip:hover{transform:none}
+  .spinner{animation-duration:1.4s!important;animation-iteration-count:infinite!important}
+}
+</style>
+</head>
+
+<body>
+<a href="#main" class="skip-link">Skip to main content</a>
+<noscript><p style="padding:16px">This grading console needs JavaScript enabled.</p></noscript>
+
+<div class="container">
+
+<!-- ===================== HEADER ===================== -->
+<header class="app-header">
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7.5" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <div>
+      <h1>BITS Pilani Digital</h1>
+      <h2>Advanced Grading Console</h2>
+    </div>
+  </div>
+  <div class="header-tools">
+    <span class="status-pill" id="statusPill" data-state="idle" role="status"><span class="dot" aria-hidden="true"></span><span id="statusText">No data</span></span>
+
+    <div class="timer" id="timer" data-state="idle" title="Grading time — starts when you select a course and stops when you finalize">
+      <svg width="34" height="34" viewBox="0 0 90 90" aria-hidden="true">
+        <circle class="track" cx="45" cy="45" r="38" stroke-width="10" fill="none"/>
+        <circle class="arc" id="timerArc" cx="45" cy="45" r="38" stroke-width="10" fill="none" stroke-linecap="round"/>
+      </svg>
+      <div class="timer-meta">
+        <span class="timer-label">Grading time</span>
+        <span class="timer-text num" id="timerText" aria-label="Grading time 0 minutes 0 seconds">00:00</span>
+      </div>
+    </div>
+
+    <button class="btn btn-ghost btn-icon" id="helpBtn" type="button" aria-label="Help and file format guide" title="Help">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9.5"/><path d="M9.5 9.2a2.6 2.6 0 015 .9c0 1.8-2.5 2.2-2.5 3.9"/><circle cx="12" cy="17.2" r=".6" fill="currentColor"/></svg>
+    </button>
+
+    <button class="theme-toggle" id="themeToggle" type="button" role="switch" aria-checked="false" aria-label="Dark mode">
+      <span class="lbl lbl-light" aria-hidden="true">LIGHT</span>
+      <span class="switch-track" aria-hidden="true"><span class="switch-thumb">◐</span></span>
+      <span class="lbl lbl-dark" aria-hidden="true">DARK</span>
+    </button>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- ===================== SETUP ===================== -->
+<section class="setup-grid" aria-label="Grading session setup">
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h3 class="card-title">Grading session</h3>
+        <p class="card-sub">Who is grading, and which course.</p>
+      </div>
+    </div>
+    <div class="session-fields">
+      <div class="field">
+        <label for="instructor">Instructor name <span class="req" aria-hidden="true">*</span><span class="sr-only">(required)</span></label>
+        <input id="instructor" class="input" type="text" autocomplete="name" maxlength="80" placeholder="e.g. Dr. A. Sharma" aria-describedby="instructorHint" required>
+        <span class="hint" id="instructorHint">Required. Appears on the exported grade sheet.</span>
+      </div>
+      <div class="field">
+        <label for="course">Course</label>
+        <select id="course" class="select" disabled aria-describedby="courseHint">
+          <option value="">Select a course to begin</option>
+        </select>
+        <span class="hint" id="courseHint">Upload a marks file to see its courses.</span>
+      </div>
+      <p class="welcome" id="welcome" aria-live="polite"></p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h3 class="card-title">Marks data</h3>
+        <p class="card-sub">Excel file with BITS ID, Course and Total Marks.</p>
+      </div>
+      <button class="btn btn-sm" id="templateBtn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 19h14"/></svg>
+        Template
+      </button>
+    </div>
+
+    <div class="dropzone" id="dropzone">
+      <div class="dropzone-text">
+        <strong>Drop your marks file here</strong>
+        <span>.xlsx or .xls (CSV also accepted) · up to 15 MB</span>
+      </div>
+      <button class="btn btn-primary" id="uploadBtn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V5m0 0l-4 4m4-4l4 4M5 19h14"/></svg>
+        <span class="lbl">Upload Excel file</span>
+        <span class="spinner" aria-hidden="true"></span>
+      </button>
+      <input type="file" id="file" class="sr-only" tabindex="-1" aria-hidden="true"
+        accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv">
+    </div>
+
+    <details class="file-guidance">
+      <summary>Marks file format guidance</summary>
+      <div class="fg-body">
+        <p>The uploaded Excel file should contain exactly three columns: <b>BITS ID</b>, <b>Course</b>, and <b>Total Marks</b>.</p>
+        <p>Total Marks must be whole numbers from 0 to 100. Round fractional marks according to your course policy <em>before</em> uploading — the console never changes marks, and flags fractional values so no student is graded on an unrounded mark.</p>
+        <p>Students who did not appear for the trimester-end examination and are to be awarded an <b>NC</b> grade should not be included in the file.</p>
+        <p>This console is intended for grading only those students who appeared for the examination.</p>
+      </div>
+    </details>
+
+    <div class="data-status" id="dataStatus" aria-live="polite"></div>
+    <p class="privacy-note">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>
+      Files are processed in your browser. No student data is uploaded anywhere.
+    </p>
+  </div>
+</section>
+
+<!-- ===================== EMPTY / DASHBOARD ===================== -->
+<section id="emptyState" class="card" style="margin-top:14px" aria-live="polite"></section>
+
+<div id="dashboard" class="hidden">
+
+  <div id="courseBanner"></div>
+
+  <h3 class="eyebrow" style="margin-top:18px">Analytics</h3>
+  <section class="kpis" aria-label="Course statistics">
+    <div class="kpi"><div class="kpi-label">Students</div><div class="kpi-value num" id="kStudents">—</div><div class="kpi-foot" id="kStudentsFoot">graded in this course</div></div>
+    <div class="kpi"><div class="kpi-label">Average</div><div class="kpi-value num" id="kAvg">—</div><div class="kpi-foot">mean mark</div></div>
+    <div class="kpi"><div class="kpi-label">Median</div><div class="kpi-value num" id="kMed">—</div><div class="kpi-foot">middle mark</div></div>
+    <div class="kpi"><div class="kpi-label">Std deviation</div><div class="kpi-value num" id="kStd">—</div><div class="kpi-foot">population σ</div></div>
+    <div class="kpi"><div class="kpi-label">Pass rate</div><div class="kpi-value num" id="kPass">—</div><div class="kpi-foot" id="kPassFoot">grade D or above</div></div>
+    <div class="kpi"><div class="kpi-label">Minimum</div><div class="kpi-value num" id="kMin">—</div><div class="kpi-foot">lowest mark</div></div>
+    <div class="kpi"><div class="kpi-label">Maximum</div><div class="kpi-value num" id="kMax">—</div><div class="kpi-foot">highest mark</div></div>
+  </section>
+
+  <div class="main-grid">
+    <!-- LEFT: analytics -->
+    <div class="stack">
+      <section class="card" aria-labelledby="histTitle">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title" id="histTitle">Marks distribution</h3>
+            <p class="card-sub" id="histSub">Students per 10-mark range, with grade bands shaded.</p>
+          </div>
+        </div>
+        <div id="histEmpty" class="hidden"></div>
+        <div id="histBody">
+          <div class="chart-wrap" id="histWrap">
+            <canvas id="hist" role="img" aria-label="Histogram of marks"></canvas>
+            <div class="chart-tip" id="histTip" aria-hidden="true"></div>
+          </div>
+          <div class="legend" id="histLegend"></div>
+          <table class="sr-only" id="histTable" aria-label="Histogram data"></table>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="distTitle">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title" id="distTitle">Grade distribution</h3>
+            <p class="card-sub">Official (applied) grading scheme.</p>
+          </div>
+        </div>
+        <div class="dist" id="gradeDist" role="list"></div>
+      </section>
+    </div>
+
+    <!-- RIGHT: grading -->
+    <div class="stack">
+      <section class="card" aria-labelledby="cfgTitle">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title" id="cfgTitle">Grade configuration</h3>
+            <p class="card-sub">Drag a boundary or type values. Changes are simulated until you apply them.</p>
+          </div>
+        </div>
+        <div class="cfg-toolbar">
+          <button class="switch" id="autoLink" type="button" role="switch" aria-checked="true">
+            <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+            Auto-link adjacent grades
+          </button>
+          <label class="pass" for="passGrade">Pass at
+            <select class="select" id="passGrade"></select>
+            or above
+          </label>
+        </div>
+
+        <div class="scale" id="scale">
+          <div class="density" id="density" aria-hidden="true" title="Where students' marks fall"></div>
+          <div class="track" id="track"></div>
+          <div class="axis" aria-hidden="true"><span>0</span><span>100</span></div>
+          <p class="scale-note" id="scaleNote">Bars above the scale show how many students scored each mark. Hatched areas are marks no grade covers.</p>
+        </div>
+
+        <div class="bands-head" aria-hidden="true"><span>Grade</span><span>Min</span><span></span><span>Max</span><span>Students</span></div>
+        <div class="bands" id="bands"></div>
+        <div class="validation" id="schemeValidation" role="status" aria-live="polite"></div>
+        <div class="cfg-actions">
+          <button class="btn btn-sm" id="resetRanges" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 108-8 8.3 8.3 0 00-6 2.6L4 9"/><path d="M4 4v5h5"/></svg>
+            Reset to defaults
+          </button>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="simTitle">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title" id="simTitle">Grade Scheme Simulator</h3>
+            <p class="card-sub">Preview the impact of boundary changes before they become official.</p>
+          </div>
+          <span id="simBadge" class="badge badge-ok">Official scheme active</span>
+        </div>
+        <div id="simBody" aria-live="polite"></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- STUDENT TABLE -->
+  <h3 class="eyebrow">Student performance</h3>
+  <section class="card" aria-labelledby="tblTitle" id="studentsCard">
+    <div class="card-head">
+      <div>
+        <h3 class="card-title" id="tblTitle">Students</h3>
+        <p class="card-sub">Search, filter and sort. Click a row to highlight it.</p>
+      </div>
+    </div>
+    <div class="table-tools">
+      <div class="field">
+        <label for="search">Search BITS ID</label>
+        <div class="search-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input id="search" class="input" type="search" placeholder="e.g. 2024A7PS" autocomplete="off">
+        </div>
+      </div>
+      <div class="field narrow">
+        <label for="gradeFilter">Grade</label>
+        <select id="gradeFilter" class="select"><option value="">All grades</option></select>
+      </div>
+      <div class="filter-chips" role="group" aria-label="Quick filters">
+        <button type="button" class="chip" id="fBorder" aria-pressed="false" title="Students within 2 marks of the next grade up">Near a boundary</button>
+        <button type="button" class="chip hidden" id="fAffected" aria-pressed="false">Affected by simulation</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="clearFilters">Clear filters</button>
+      </div>
+    </div>
+    <div id="tableBanner"></div>
+    <div class="table-scroll">
+      <table class="students" id="studentTable">
+        <caption class="sr-only">Students in the selected course</caption>
+        <thead><tr>
+          <th scope="col" data-key="id" aria-sort="none"><button class="th-btn" type="button">BITS ID <span class="arrow" aria-hidden="true">▲▼</span></button></th>
+          <th scope="col"><span class="th-static">Course</span></th>
+          <th scope="col" class="r" data-key="marks" aria-sort="descending"><button class="th-btn" type="button">Total Marks <span class="arrow" aria-hidden="true">▼</span></button></th>
+          <th scope="col" data-key="grade" aria-sort="none"><button class="th-btn" type="button">Grade <span class="arrow" aria-hidden="true">▲▼</span></button></th>
+          <th scope="col" class="r" data-key="pct" aria-sort="none"><button class="th-btn" type="button" title="Percentile rank: % of students scoring below, counting ties as half">Percentile <span class="arrow" aria-hidden="true">▲▼</span></button></th>
+        </tr></thead>
+        <tbody id="studentRows"></tbody>
+      </table>
+    </div>
+    <div id="tableEmpty" class="hidden"></div>
+    <div class="table-foot">
+      <span id="tableCount" aria-live="polite"></span>
+      <div class="pager">
+        <button class="btn btn-sm" id="prevPage" type="button" aria-label="Previous page">‹ Prev</button>
+        <span id="pageInfo" class="num"></span>
+        <button class="btn btn-sm" id="nextPage" type="button" aria-label="Next page">Next ›</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- FINAL REVIEW -->
+  <h3 class="eyebrow">Final review</h3>
+  <section class="card" aria-labelledby="reviewTitle" id="reviewCard">
+    <div class="card-head">
+      <div>
+        <h3 class="card-title" id="reviewTitle">Review &amp; finalize</h3>
+        <p class="card-sub">Check everything once more. Grades are exported with the official scheme only.</p>
+      </div>
+    </div>
+    <div class="review-grid">
+      <div>
+        <dl class="summary-dl" id="reviewSummary"></dl>
+        <p class="sub-title">Grade distribution</p>
+        <div class="dist" id="reviewDist" role="list"></div>
+        <p class="sub-title">Grading scheme</p>
+        <div class="scheme-chips" id="reviewScheme"></div>
+      </div>
+      <div class="finalize-box">
+        <div>
+          <p class="sub-title" style="margin-top:0">Checklist</p>
+          <ul class="check-list" id="blockers"></ul>
+        </div>
+        <div id="changeNote"></div>
+        <div>
+          <p class="sub-title" style="margin-top:0">Export format</p>
+          <div class="segmented" role="radiogroup" aria-label="Export format">
+            <label><input type="radio" name="fmt" value="csv" checked><span>CSV</span></label>
+            <label><input type="radio" name="fmt" value="xlsx"><span>Excel report</span></label>
+            <label><input type="radio" name="fmt" value="both"><span>Both</span></label>
+          </div>
+          <p class="hint" style="margin-top:6px" id="fmtHint">CSV: BITS ID, Course, Total Marks, Grade.</p>
+        </div>
+        <label class="checkbox">
+          <input type="checkbox" id="reviewConfirm">
+          <span>I have reviewed the grade distribution and grading scheme for this course.</span>
+        </label>
+        <div>
+          <button class="btn btn-primary" id="download" type="button" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 19h14"/></svg>
+            <span class="lbl">Finalize &amp; Download</span>
+            <span class="spinner" aria-hidden="true"></span>
+          </button>
+        </div>
+        <div id="thankyou" aria-live="polite"></div>
+      </div>
+    </div>
+  </section>
+</div>
+</main>
+
+<footer class="app-footer">CodeForge V1.0 challenge prototype · not an official grading tool · all processing happens locally in your browser</footer>
+</div>
+
+<!-- ===================== TOASTS ===================== -->
+<div class="toasts" id="toasts" aria-live="polite" aria-relevant="additions"></div>
+
+<!-- ===================== DIALOGS ===================== -->
+<dialog id="issuesDialog" class="wide" aria-labelledby="issuesTitle">
+  <div class="dlg-head">
+    <h3 id="issuesTitle">Data validation issues</h3>
+    <button class="btn btn-ghost btn-icon" type="button" data-close aria-label="Close">✕</button>
+  </div>
+  <div class="dlg-body">
+    <p id="issuesIntro" style="margin-bottom:10px;color:var(--text-secondary)"></p>
+    <div class="filter-chips" style="margin-bottom:10px" role="group" aria-label="Filter issues by severity">
+      <button type="button" class="chip" data-sev="all" aria-pressed="true">All</button>
+      <button type="button" class="chip" data-sev="error" aria-pressed="false">Errors</button>
+      <button type="button" class="chip" data-sev="warning" aria-pressed="false">Warnings</button>
+      <button type="button" class="chip" data-sev="info" aria-pressed="false">Info</button>
+    </div>
+    <table class="issues-table">
+      <thead><tr><th>Severity</th><th>Row</th><th>BITS ID</th><th>Course</th><th>Problem</th></tr></thead>
+      <tbody id="issuesRows"></tbody>
+    </table>
+  </div>
+  <div class="dlg-foot">
+    <button class="btn" type="button" id="downloadIssues">Download issue list (CSV)</button>
+    <button class="btn btn-primary" type="button" data-close>Close</button>
+  </div>
+</dialog>
+
+<dialog id="resetDialog" aria-labelledby="resetTitle">
+  <div class="dlg-head">
+    <h3 id="resetTitle">Reset grade ranges?</h3>
+    <button class="btn btn-ghost btn-icon" type="button" data-close aria-label="Close">✕</button>
+  </div>
+  <div class="dlg-body">
+    <p>This loads the default ranges into the editor:</p>
+    <div class="scheme-chips" id="defaultChips"></div>
+    <p style="margin-top:10px;color:var(--text-secondary)">You'll see the impact in the simulator first. The official scheme only changes when you choose <b>Apply changes</b>.</p>
+  </div>
+  <div class="dlg-foot">
+    <button class="btn" type="button" data-close>Keep current ranges</button>
+    <button class="btn btn-primary" type="button" id="confirmReset">Reset to defaults</button>
+  </div>
+</dialog>
+
+<dialog id="helpDialog" class="wide" aria-labelledby="helpTitle">
+  <div class="dlg-head">
+    <h3 id="helpTitle">How this console works</h3>
+    <button class="btn btn-ghost btn-icon" type="button" data-close aria-label="Close">✕</button>
+  </div>
+  <div class="dlg-body help">
+    <h4>1 · Prepare the marks file</h4>
+    <ul>
+      <li>Three columns: <b>BITS ID</b>, <b>Course</b>, <b>Total Marks</b> (0–100, whole numbers). Use the <b>Template</b> button for a ready-made file.</li>
+      <li>Leave out students who receive an NC grade (did not appear for the exam).</li>
+      <li>A file may hold several courses; each course is graded separately with its own scheme.</li>
+    </ul>
+    <h4>2 · Upload &amp; validate</h4>
+    <ul>
+      <li>The console checks for missing columns, empty IDs, duplicate IDs within a course, missing or invalid marks, and marks outside 0–100.</li>
+      <li>Marks are never changed. Rows with errors are left out of analytics, and a course can't be finalized until its data errors are fixed in the source file and it is re-uploaded.</li>
+    </ul>
+    <h4>3 · Configure grades</h4>
+    <ul>
+      <li>A student gets a grade when their mark is between that grade's Min and Max (both inclusive). Ranges must cover 0–100 with no gaps or overlaps.</li>
+      <li><b>Auto-link</b> keeps neighbours continuous: changing B's Min moves B-'s Max to one below it.</li>
+      <li>Every edit is a <b>simulation</b>. The simulator shows who would change grade; nothing becomes official until you press <b>Apply changes</b>.</li>
+      <li>Boundary handles on the scale support the keyboard: <kbd>←</kbd>/<kbd>→</kbd> move by 1, <kbd>PgUp</kbd>/<kbd>PgDn</kbd> by 5.</li>
+    </ul>
+    <h4>4 · Review &amp; export</h4>
+    <ul>
+      <li>Tick the review box, then <b>Finalize &amp; Download</b>. CSV holds BITS ID, Course, Total Marks and Grade; the Excel report adds Statistics, Grade Distribution and Validation Report sheets.</li>
+      <li>Percentile rank = share of students scoring below the student, counting ties as half.</li>
+      <li>The grading timer starts when you first select a course and pauses when you finalize.</li>
+    </ul>
+  </div>
+  <div class="dlg-foot"><button class="btn btn-primary" type="button" data-close>Got it</button></div>
+</dialog>
+
+<script>
+'use strict';
+/* =====================================================================
+   CONSTANTS
+   ===================================================================== */
+const GRADES=["A","A-","B","B-","C","C-","D","E"];
+const DEFAULTS={
+  "A":[80,100],"A-":[70,79],"B":[60,69],"B-":[50,59],
+  "C":[40,49],"C-":[30,39],"D":[20,29],"E":[0,19]
+};
+const DEFAULT_SCHEME=GRADES.map(g=>({grade:g,min:DEFAULTS[g][0],max:DEFAULTS[g][1]}));
+const PAGE_SIZE=25;
+const BORDERLINE_GAP=2;
+const MAX_FILE_BYTES=15*1024*1024;
+const THEME_KEY='gc-theme';
+const NAME_KEY='gc-instructor';
+
+/* =====================================================================
+   SMALL UTILITIES
+   ===================================================================== */
+const $=(sel,root=document)=>root.querySelector(sel);
+const $$=(sel,root=document)=>Array.from(root.querySelectorAll(sel));
+const el=(tag,attrs={},children=[])=>{
+  const n=document.createElement(tag);
+  for(const [k,v] of Object.entries(attrs)){
+    if(v==null||v===false) continue;
+    if(k==='class') n.className=v;
+    else if(k==='text') n.textContent=v;
+    else if(k==='html') n.innerHTML=v;
+    else if(k.startsWith('on')) n.addEventListener(k.slice(2),v);
+    else n.setAttribute(k,v===true?'':v);
+  }
+  (Array.isArray(children)?children:[children]).forEach(c=>{if(c!=null) n.append(c);});
+  return n;
+};
+const reducedMotion=()=>window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+const cloneScheme=s=>s.map(b=>({...b}));
+const schemesEqual=(a,b)=>a.length===b.length&&a.every((x,i)=>x.min===b[i].min&&x.max===b[i].max);
+const gradeIndex=g=>GRADES.indexOf(g);
+const plural=(n,one,many)=>`${n} ${n===1?one:(many||one+'s')}`;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const nextFrame=()=>new Promise(r=>requestAnimationFrame(()=>r()));
+
+/** Format a number for display; never lets NaN/Infinity/undefined reach the UI. */
+function fmt(v,decimals=0,suffix=''){
+  return (typeof v==='number'&&Number.isFinite(v))?v.toFixed(decimals)+suffix:'—';
+}
+function ordinal(n){
+  const words={1:'first',2:'second',3:'third',4:'fourth',5:'fifth',6:'sixth',7:'seventh',8:'eighth',9:'ninth',10:'tenth'};
+  if(words[n]) return words[n];
+  const s=['th','st','nd','rd'],v=n%100;
+  return n+(s[(v-20)%10]||s[v]||s[0]);
+}
+const safeStorage={
+  get(k){try{return localStorage.getItem(k);}catch(e){return null;}},
+  set(k,v){try{localStorage.setItem(k,v);}catch(e){/* storage unavailable (private mode) */}}
+};
+function localDateStamp(d=new Date()){
+  const p=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+}
+function localDateTime(d=new Date()){
+  const p=n=>String(n).padStart(2,'0');
+  return `${localDateStamp(d)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function schemeToText(s){return s.map(b=>`${b.grade}: ${b.min}-${b.max}`).join('; ');}
+
+/* =====================================================================
+   APPLICATION STATE
+   ===================================================================== */
+const state={
+  instructor:'',
+  dataset:null,          // result of validateUploadedData()
+  course:'',
+  courses:{},            // per-course grading state (scheme, pass grade, finalized...)
+  view:null,             // cached derived data for the selected course
+  loading:false,
+  autoLink:true,
+  table:{search:'',grade:'',borderline:false,affected:false,transition:null,sortKey:'marks',sortDir:'desc',page:1,selected:null},
+  reviewed:false,
+  exportFormat:'csv',
+  finalizeCount:0,
+  unsaved:false,
+  histAnimated:false
+};
+
+function courseState(name=state.course){
+  if(!name) return null;
+  if(!state.courses[name]){
+    state.courses[name]={
+      applied:cloneScheme(DEFAULT_SCHEME),
+      draft:cloneScheme(DEFAULT_SCHEME),
+      reference:cloneScheme(DEFAULT_SCHEME),
+      referenceLabel:'the default scheme',
+      passGrade:'D',
+      finalized:false
+    };
+  }
+  return state.courses[name];
+}
+const isSimulating=()=>{const cs=courseState();return !!cs&&!schemesEqual(cs.applied,cs.draft);};
+
+/* =====================================================================
+   TOASTS
+   ===================================================================== */
+const TOAST_ICONS={success:'✓',warning:'!',error:'✕',info:'i'};
+function showToast(type,title,message='',{persistent=type==='error',duration=4500,group=null}={}){
+  const box=$('#toasts');
+  // A new toast in the same group (e.g. the latest upload result) replaces the older one.
+  if(group) $$(`.toast[data-group="${group}"]`,box).forEach(t=>t.remove());
+  while(box.children.length>=4) box.firstElementChild.remove();
+  const t=el('div',{class:`toast toast-${type}`,role:type==='error'?'alert':'status','data-group':group},[
+    el('span',{class:'t-ico','aria-hidden':'true',text:TOAST_ICONS[type]}),
+    el('div',{},[el('strong',{text:title}),message?el('p',{text:message}):null]),
+    el('button',{class:'close',type:'button','aria-label':'Dismiss notification',text:'×'})
+  ]);
+  let timerId=null;
+  const dismiss=()=>{
+    clearTimeout(timerId);
+    if(t.classList.contains('leaving')) return;
+    t.classList.add('leaving');
+    const done=()=>t.remove();
+    if(reducedMotion()) done(); else {t.addEventListener('animationend',done,{once:true});setTimeout(done,400);}
+  };
+  const arm=()=>{if(!persistent) timerId=setTimeout(dismiss,duration);};
+  t.querySelector('.close').addEventListener('click',dismiss);
+  t.addEventListener('mouseenter',()=>clearTimeout(timerId));
+  t.addEventListener('mouseleave',arm);
+  box.append(t);
+  arm();
+  return dismiss;
+}
+
+/* =====================================================================
+   DIALOGS
+   ===================================================================== */
+function openDialog(d){
+  if(!d.open){d.classList.remove('closing');d.showModal();}
+}
+function closeDialog(d){
+  if(!d.open) return;
+  if(reducedMotion()){d.close();return;}
+  d.classList.add('closing');
+  const finish=()=>{d.classList.remove('closing');if(d.open) d.close();};
+  d.addEventListener('animationend',finish,{once:true});
+  setTimeout(finish,320);
+}
+$$('dialog').forEach(d=>{
+  d.addEventListener('click',e=>{
+    if(e.target.closest('[data-close]')) closeDialog(d);
+    else if(e.target===d) closeDialog(d);   // click on backdrop
+  });
+  d.addEventListener('cancel',e=>{e.preventDefault();closeDialog(d);});
+});
+
+/* =====================================================================
+   THEME
+   ===================================================================== */
+function setTheme(theme,{persist=true}={}){
+  const t=theme==='dark'?'dark':'light';
+  document.documentElement.setAttribute('data-theme',t);
+  $('#themeToggle').setAttribute('aria-checked',String(t==='dark'));
+  if(persist) safeStorage.set(THEME_KEY,t);
+  if(state.view) drawHistogram({animate:false});
+}
+$('#themeToggle').addEventListener('click',()=>{
+  setTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark');
+});
+
+/* =====================================================================
+   GRADING TIMER (preserved feature; starts when grading begins)
+   ===================================================================== */
+const timer={startedAt:null,accumulated:0,running:false,intervalId:null,started:false};
+const TIMER_CIRC=2*Math.PI*38;
+function timerElapsed(){return timer.accumulated+(timer.running?Date.now()-timer.startedAt:0);}
+function renderTimer(){
+  const ms=timerElapsed();
+  const min=Math.floor(ms/60000),sec=Math.floor((ms%60000)/1000);
+  const txt=$('#timerText');
+  txt.textContent=String(min).padStart(2,'0')+':'+String(sec).padStart(2,'0');
+  txt.setAttribute('aria-label',`Grading time ${min} minutes ${sec} seconds`);
+  const progress=Math.min(ms/3600000,1);   // full ring = 1 hour
+  $('#timerArc').style.strokeDashoffset=TIMER_CIRC*(1-progress);
+  $('#timer').dataset.state=timer.running?'running':(timer.started?'paused':'idle');
+}
+function startTimer(){
+  if(timer.running) return;
+  timer.started=true;
+  timer.startedAt=Date.now();
+  timer.running=true;
+  renderTimer();                             // render immediately, not after the first tick
+  timer.intervalId=setInterval(renderTimer,1000);
+}
+function pauseTimer(){
+  if(!timer.running) return;
+  timer.accumulated+=Date.now()-timer.startedAt;
+  timer.running=false;
+  clearInterval(timer.intervalId);
+  timer.intervalId=null;
+  renderTimer();
+}
+$('#timerArc').style.strokeDasharray=TIMER_CIRC;
+$('#timerArc').style.strokeDashoffset=TIMER_CIRC;
+
+/** Any grading change after a finalize resumes the timer and requires a fresh review. */
+function markDirty(){
+  state.unsaved=true;
+  if(state.reviewed){state.reviewed=false;$('#reviewConfirm').checked=false;}
+  if(timer.started&&!timer.running) startTimer();
+}
+
+/* =====================================================================
+   NUMBER ANIMATION
+   ===================================================================== */
+function animateNumber(node,value,{decimals=0,suffix=''}={}){
+  if(!node) return;
+  if(node._raf){cancelAnimationFrame(node._raf);node._raf=null;}
+  if(typeof value!=='number'||!Number.isFinite(value)){node.textContent='—';node._v=null;return;}
+  const from=(typeof node._v==='number')?node._v:null;
+  node._v=value;
+  const final=value.toFixed(decimals)+suffix;
+  if(from===null||from===value||reducedMotion()){node.textContent=final;return;}
+  node.classList.remove('bump');void node.offsetWidth;node.classList.add('bump');
+  const t0=performance.now(),dur=260;
+  const step=now=>{
+    const p=Math.min(1,(now-t0)/dur),e=1-Math.pow(1-p,3);
+    node.textContent=(from+(value-from)*e).toFixed(decimals)+suffix;
+    if(p<1) node._raf=requestAnimationFrame(step); else {node._raf=null;node.textContent=final;}
+  };
+  node._raf=requestAnimationFrame(step);
+}
+
+/* =====================================================================
+   FILE READING & DATA VALIDATION
+   ===================================================================== */
+const HEADER_ALIASES={
+  id:['bitsid','studentsbitsid','studentbitsid','bitsidno','idno','studentid','id'],
+  course:['course','coursename','coursetitle','coursecode'],
+  marks:['totalmarks','totalmarksoutof100','total','marks','totalmark']
+};
+const normHeader=h=>String(h??'').toLowerCase().replace(/[^a-z0-9]/g,'');
+const isBlank=v=>v===null||v===undefined||(typeof v==='string'&&v.trim()==='');
+
+const ISSUE_TEXT={
+  MISSING_ID:        n=>`${plural(n,'student has','students have')} missing BITS IDs`.replace('has missing BITS IDs','has a missing BITS ID'),
+  MISSING_COURSE:    n=>`${plural(n,'student has','students have')} no course name`,
+  MISSING_MARKS:     n=>`${plural(n,'student has','students have')} missing marks`,
+  NON_NUMERIC:       n=>`${plural(n,'student has','students have')} non-numeric marks`,
+  BELOW_ZERO:        n=>`${plural(n,'student has','students have')} marks below 0`,
+  ABOVE_100:         n=>`${plural(n,'student has','students have')} marks greater than 100`,
+  NON_INTEGER:       n=>`${plural(n,'student has','students have')} fractional marks (whole numbers required)`,
+  DUPLICATE_ID:      n=>`${plural(n,'row repeats','rows repeat')} a BITS ID within the same course`,
+  EXTRA_COLUMN:      n=>`${plural(n,'unexpected column')} ignored`,
+  MALFORMED_ROW:     n=>`${plural(n,'row has','rows have')} data outside the named columns`,
+  COURSE_VARIANT:    n=>`${plural(n,'course name differs','course names differ')} only by case or spacing`,
+  EXTRA_SHEETS:      n=>`${plural(n,'extra sheet')} ignored (only the first sheet with data is read)`,
+  BLANK_ROWS:        n=>`${plural(n,'blank row')} skipped`
+};
+
+/**
+ * Validate the raw sheet grid (array of row arrays).
+ * Never modifies marks: numeric text such as "82" is read as 82, anything else is reported.
+ */
+function validateUploadedData(grid,meta){
+  const issues=[];
+  const add=(severity,code,message,extra={})=>issues.push({severity,code,message,row:null,id:'',course:'',...extra});
+  const result={fileName:meta.fileName,sheetName:meta.sheetName,fileSize:meta.fileSize,students:[],issues,courses:[],fatal:null,columns:[]};
+
+  const headerIdx=grid.findIndex(r=>Array.isArray(r)&&r.some(c=>!isBlank(c)));
+  if(headerIdx<0){result.fatal='The file contains no data.';return result;}
+  const header=grid[headerIdx].map(h=>isBlank(h)?'':String(h).trim());
+  result.columns=header.filter(Boolean);
+
+  const colOf={};
+  const dupCols=[];
+  header.forEach((h,i)=>{
+    const n=normHeader(h);
+    if(!n) return;
+    for(const [key,aliases] of Object.entries(HEADER_ALIASES)){
+      if(aliases.includes(n)){
+        if(colOf[key]!==undefined) dupCols.push(h); else colOf[key]=i;
+        return;
+      }
+    }
+    add('warning','EXTRA_COLUMN',`Unexpected column "${h}" is ignored.`);
+  });
+  const missing=[['id','BITS ID'],['course','Course'],['marks','Total Marks']].filter(([k])=>colOf[k]===undefined).map(([,l])=>l);
+  if(missing.length){
+    result.fatal=`Missing required column${missing.length>1?'s':''}: ${missing.join(', ')}.`;
+    result.missingColumns=missing;
+    return result;
+  }
+  if(dupCols.length){
+    result.fatal=`The column${dupCols.length>1?'s':''} ${dupCols.map(c=>`"${c}"`).join(', ')} appear${dupCols.length>1?'':'s'} more than once — the console cannot tell which to use.`;
+    return result;
+  }
+  const knownCols=new Set(Object.values(colOf));
+  let blankRows=0;
+
+  for(let i=headerIdx+1;i<grid.length;i++){
+    const row=grid[i]||[];
+    const rowNum=meta.rowOffset+i+1;           // Excel row number, for the instructor
+    if(!row.some(c=>!isBlank(c))){blankRows++;continue;}
+    const rawId=row[colOf.id],rawCourse=row[colOf.course],rawMarks=row[colOf.marks];
+    const id=isBlank(rawId)?'':String(rawId).trim();
+    const course=isBlank(rawCourse)?'':String(rawCourse).trim().replace(/\s+/g,' ');
+    const s={row:rowNum,id,course,marks:null,rawMarks:isBlank(rawMarks)?'':String(rawMarks),errors:[]};
+    const ctx={row:rowNum,id,course};
+    const err=(code,msg)=>{s.errors.push(code);add('error',code,msg,ctx);};
+
+    if(!id) err('MISSING_ID','BITS ID is empty.');
+    if(!course) err('MISSING_COURSE','Course name is empty.');
+
+    if(isBlank(rawMarks)) err('MISSING_MARKS','Total Marks is empty.');
+    else{
+      let n=null;
+      if(typeof rawMarks==='number') n=rawMarks;
+      else if(typeof rawMarks==='string'&&/^[+-]?(\d+(\.\d+)?|\.\d+)$/.test(rawMarks.trim())) n=Number(rawMarks.trim());
+      if(n===null||!Number.isFinite(n)) err('NON_NUMERIC',`Total Marks "${String(rawMarks).slice(0,40)}" is not a number.`);
+      else{
+        s.marks=n;
+        if(n<0) err('BELOW_ZERO',`Total Marks ${n} is below 0.`);
+        else if(n>100) err('ABOVE_100',`Total Marks ${n} is greater than 100.`);
+        else if(!Number.isInteger(n)) err('NON_INTEGER',`Total Marks ${n} is not a whole number. Round it per your course policy and re-upload.`);
+      }
+    }
+    const strayCols=row.map((c,ci)=>(!isBlank(c)&&!knownCols.has(ci)&&!header[ci])?ci:-1).filter(ci=>ci>=0);
+    if(strayCols.length) add('warning','MALFORMED_ROW',`Row has values in ${plural(strayCols.length,'column')} without a header; they were ignored.`,ctx);
+    result.students.push(s);
+  }
+  if(blankRows) add('info','BLANK_ROWS',`${plural(blankRows,'blank row')} skipped.`);
+  if(meta.extraSheets&&meta.extraSheets.length) add('info','EXTRA_SHEETS',`Sheets ignored: ${meta.extraSheets.join(', ')}. Only "${meta.sheetName}" was read.`);
+
+  if(!result.students.length){result.fatal='No student records were found below the header row.';return result;}
+
+  // Duplicate BITS IDs within the same course (the same student in two courses is legitimate).
+  const seen=new Map();
+  result.students.forEach(s=>{
+    if(!s.id||!s.course) return;
+    const key=s.course+'\u0000'+s.id.toUpperCase();
+    if(!seen.has(key)) seen.set(key,[]);
+    seen.get(key).push(s);
+  });
+  for(const list of seen.values()){
+    if(list.length<2) continue;
+    const rows=list.map(s=>s.row).join(', ');
+    list.forEach(s=>{
+      s.errors.push('DUPLICATE_ID');
+      add('error','DUPLICATE_ID',`BITS ID ${s.id} appears ${list.length} times in ${s.course} (rows ${rows}).`,{row:s.row,id:s.id,course:s.course});
+    });
+  }
+
+  // Course names that differ only by case/spacing are probably the same course typed twice.
+  const variants=new Map();
+  result.students.forEach(s=>{
+    if(!s.course) return;
+    const k=s.course.toLowerCase().replace(/\s+/g,'');
+    if(!variants.has(k)) variants.set(k,new Set());
+    variants.get(k).add(s.course);
+  });
+  for(const set of variants.values()){
+    if(set.size>1) add('warning','COURSE_VARIANT',`Course names ${[...set].map(c=>`"${c}"`).join(' and ')} differ only by case or spacing and are treated as separate courses.`);
+  }
+
+  // Aggregate courses.
+  const cmap=new Map();
+  result.students.forEach(s=>{
+    s.valid=s.errors.length===0;
+    if(!s.course) return;
+    if(!cmap.has(s.course)) cmap.set(s.course,{name:s.course,total:0,valid:0,errors:0});
+    const c=cmap.get(s.course);
+    c.total++; if(s.valid) c.valid++; else c.errors++;
+  });
+  result.courses=[...cmap.values()].sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
+  result.orphanErrors=result.students.filter(s=>!s.course).length;   // rows we cannot attribute to a course
+  result.errorCount=issues.filter(i=>i.severity==='error').length;
+  result.warningCount=issues.filter(i=>i.severity==='warning').length;
+  result.validCount=result.students.filter(s=>s.valid).length;
+  return result;
+}
+
+function summarizeIssues(issues,severities=['error','warning']){
+  const counts=new Map();
+  issues.filter(i=>severities.includes(i.severity)).forEach(i=>counts.set(i.code,(counts.get(i.code)||0)+1));
+  return [...counts.entries()].map(([code,n])=>({code,n,text:ISSUE_TEXT[code]?ISSUE_TEXT[code](n):`${n} × ${code}`}));
+}
+
+/** Blocking data errors for a course: its own error rows plus rows with no course at all. */
+function courseBlockingErrors(name){
+  const ds=state.dataset;
+  if(!ds) return 0;
+  const c=ds.courses.find(c=>c.name===name);
+  return (c?c.errors:0)+(ds.orphanErrors||0);
+}
+
+const LOAD_STEPS=['Reading file…','Analyzing data…','Validating records…','Preparing dashboard…'];
+function renderLoading(stepIdx){
+  const box=$('#dataStatus');
+  const list=el('ul',{class:'loading-steps','aria-label':'Processing file'});
+  LOAD_STEPS.forEach((label,i)=>{
+    const cls=i<stepIdx?'done':(i===stepIdx?'active':'');
+    list.append(el('li',{class:cls},[
+      el('span',{class:'ico','aria-hidden':'true'},i<stepIdx?'✓':(i===stepIdx?el('span',{class:'spinner'}):'•')),
+      el('span',{text:label})
+    ]));
+  });
+  const prog=el('div',{class:'progress','aria-hidden':'true'},el('span'));
+  list.append(el('li',{},prog));
+  box.replaceChildren(list);
+  requestAnimationFrame(()=>{prog.firstChild.style.width=((stepIdx+1)/LOAD_STEPS.length*100)+'%';});
+}
+
+function setUploadBusy(b){
+  state.loading=b;
+  const btn=$('#uploadBtn');
+  btn.classList.toggle('is-loading',b);
+  btn.setAttribute('aria-busy',String(b));
+  btn.disabled=b;
+}
+
+async function handleFile(file){
+  if(!file||state.loading) return;
+  const ext=(file.name.includes('.')?file.name.split('.').pop():'').toLowerCase();
+  const hadData=!!state.dataset;
+  const failUpload=(msg,detail)=>{
+    console.warn('[upload]',msg,detail||'');
+    renderDataStatus({failed:msg,fileName:file.name,keepPrevious:hadData});
+    showToast('error','Unable to read the uploaded file.',msg,{group:'upload'});
+    setUploadBusy(false);
+  };
+  if(!['xlsx','xls','csv'].includes(ext)) return failUpload(`"${file.name}" is not a supported file type. Upload an Excel file (.xlsx or .xls).`);
+  if(file.size===0) return failUpload(`"${file.name}" is empty (0 bytes).`);
+  if(file.size>MAX_FILE_BYTES) return failUpload(`"${file.name}" is larger than 15 MB.`);
+  if(typeof XLSX==='undefined') return failUpload('The Excel reader could not be loaded. Check your internet connection and reload the page.');
+
+  setUploadBusy(true);
+  try{
+    renderLoading(0);
+    const buf=await file.arrayBuffer();
+    const bytes=new Uint8Array(buf,0,Math.min(8,buf.byteLength));
+    // .xlsx files are ZIP containers; anything else renamed to .xlsx is rejected up front.
+    if(ext==='xlsx'&&!(bytes[0]===0x50&&bytes[1]===0x4B)) return failUpload(`"${file.name}" is not a valid .xlsx workbook (it may be corrupted or renamed).`);
+    await sleep(90);
+
+    renderLoading(1);
+    await nextFrame();
+    let wb;
+    try{ wb=XLSX.read(buf,{type:'array',cellDates:false}); }
+    catch(e){ return failUpload(`"${file.name}" could not be opened as a spreadsheet.`,e); }
+    if(!wb||!wb.SheetNames||!wb.SheetNames.length) return failUpload(`"${file.name}" contains no worksheets.`);
+    const sheetHasData=n=>{const ws=wb.Sheets[n];return ws&&ws['!ref'];};
+    const sheetName=wb.SheetNames.find(sheetHasData)||wb.SheetNames[0];
+    const ws=wb.Sheets[sheetName];
+    const grid=ws&&ws['!ref']?XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null,blankrows:true}):[];
+    const rowOffset=ws&&ws['!ref']?XLSX.utils.decode_range(ws['!ref']).s.r:0;
+    const extraSheets=wb.SheetNames.filter(n=>n!==sheetName&&sheetHasData(n));
+    await sleep(90);
+
+    renderLoading(2);
+    await nextFrame();
+    const ds=validateUploadedData(grid,{fileName:file.name,fileSize:file.size,sheetName,rowOffset,extraSheets});
+    await sleep(90);
+    if(ds.fatal){
+      console.warn('[upload] validation failed:',ds.fatal);
+      renderDataStatus({failed:ds.fatal,fileName:file.name,keepPrevious:hadData,columns:ds.columns,missing:ds.missingColumns});
+      showToast('error','This file cannot be graded.',ds.fatal,{group:'upload'});
+      return;
+    }
+
+    renderLoading(3);
+    await nextFrame();
+    loadDataset(ds);
+    await sleep(60);
+    renderDataStatus();
+    if(ds.errorCount||ds.warningCount){
+      showToast('warning',`${plural(ds.errorCount+ds.warningCount,'validation issue')} ${ds.errorCount+ds.warningCount===1?'requires':'require'} attention.`,
+        ds.errorCount?'Rows with errors are excluded and block export for their course.':'Warnings do not block grading.',{group:'upload'});
+    }else{
+      showToast('success','File uploaded successfully.',`${plural(ds.validCount,'student')} in ${plural(ds.courses.length,'course')}.`,{group:'upload'});
+    }
+  }catch(e){
+    console.error('[upload] unexpected error',e);
+    failUpload('Something went wrong while reading this file.',e);
+  }finally{
+    setUploadBusy(false);
+  }
+}
+
+/** Replace the dataset and reset everything that depended on the previous file. */
+function loadDataset(ds){
+  state.dataset=ds;
+  state.course='';
+  state.view=null;
+  state.reviewed=false;
+  $('#reviewConfirm').checked=false;
+  Object.values(state.courses).forEach(cs=>{cs.finalized=false;});
+  resetTableFilters(false);
+  renderCourseOptions();
+  renderAll();
+}
+
+function renderDataStatus(opts={}){
+  const box=$('#dataStatus');
+  const ds=state.dataset;
+  if(opts.failed){
+    const items=[el('li',{},[el('span',{class:'ico ico-err','aria-hidden':'true',text:'✕'}),el('span',{},[el('strong',{text:'File not loaded. '}),document.createTextNode(opts.failed)])])];
+    if(opts.missing) items.push(el('li',{},[el('span',{class:'ico ico-info','aria-hidden':'true',text:'i'}),el('span',{text:`Expected columns: BITS ID, Course, Total Marks. Found: ${opts.columns&&opts.columns.length?opts.columns.join(', '):'none'}.`})]));
+    if(opts.keepPrevious&&ds) items.push(el('li',{},[el('span',{class:'ico ico-info','aria-hidden':'true',text:'i'}),el('span',{text:`The previously loaded file "${ds.fileName}" is still in use.`})]));
+    box.replaceChildren(el('ul',{class:'check-list status-enter'},items));
+    return;
+  }
+  if(!ds){box.replaceChildren();return;}
+  const issueCount=ds.errorCount+ds.warningCount;
+  const excluded=ds.students.length-ds.validCount;
+  const li=(kind,text,strong)=>el('li',{},[el('span',{class:`ico ico-${kind}`,'aria-hidden':'true',text:{ok:'✓',warn:'!',err:'✕',info:'i'}[kind]}),el('span',{},[strong?el('strong',{text:strong}):null,document.createTextNode(text)])]);
+  const list=el('ul',{class:'check-list status-enter'},[
+    li('ok',` — ${ds.fileName}${ds.sheetName?` · sheet "${ds.sheetName}"`:''}`,'File loaded successfully'),
+    li(ds.validCount?'ok':'err',`${plural(ds.validCount,'student')} detected${excluded?` (${plural(excluded,'row')} excluded)`:''}`),
+    li(ds.courses.length?'ok':'err',`${plural(ds.courses.length,'course')} detected`),
+    ds.errorCount?li('err',`${plural(ds.errorCount,'validation error')}`):li('ok','0 validation errors'),
+  ]);
+  const frag=[list];
+  if(issueCount){
+    const sum=summarizeIssues(ds.issues);
+    frag.push(el('p',{style:'margin-top:10px;font-weight:600',text:`⚠ ${plural(issueCount,'issue')} found`}));
+    frag.push(el('ul',{class:'issue-summary'},sum.slice(0,4).map(s=>el('li',{text:s.text}))));
+  }
+  const actions=el('div',{class:'status-actions'});
+  if(ds.issues.length) actions.append(el('button',{class:'btn btn-sm',type:'button',onclick:openIssues,text:issueCount?'View issues':'View file notes'}));
+  frag.push(actions);
+  box.replaceChildren(...frag);
+}
+
+/* ---------- Issues dialog ---------- */
+let issueFilter='all';
+function renderIssues(){
+  const ds=state.dataset;if(!ds) return;
+  const rows=ds.issues.filter(i=>issueFilter==='all'||i.severity===issueFilter)
+    .sort((a,b)=>['error','warning','info'].indexOf(a.severity)-['error','warning','info'].indexOf(b.severity)||(a.row||0)-(b.row||0));
+  $('#issuesIntro').textContent=`${plural(ds.errorCount,'error')}, ${plural(ds.warningCount,'warning')} in "${ds.fileName}". Fix errors in the source file and upload it again — the console never edits marks.`;
+  const body=$('#issuesRows');
+  if(!rows.length){body.replaceChildren(el('tr',{},el('td',{colspan:'5',text:'No issues in this category.'})));return;}
+  body.replaceChildren(...rows.slice(0,500).map(i=>el('tr',{},[
+    el('td',{},el('span',{class:`sev sev-${i.severity}`,text:{error:'✕ Error',warning:'! Warning',info:'i Info'}[i.severity]})),
+    el('td',{class:'num',text:i.row?String(i.row):'—'}),
+    el('td',{class:'mono',text:i.id||'—'}),
+    el('td',{text:i.course||'—'}),
+    el('td',{text:i.message})
+  ])));
+  if(rows.length>500) body.append(el('tr',{},el('td',{colspan:'5',text:`…and ${rows.length-500} more. Download the issue list for all of them.`})));
+}
+function openIssues(){issueFilter='all';$$('#issuesDialog [data-sev]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.sev==='all')));renderIssues();openDialog($('#issuesDialog'));}
+$$('#issuesDialog [data-sev]').forEach(b=>b.addEventListener('click',()=>{
+  issueFilter=b.dataset.sev;
+  $$('#issuesDialog [data-sev]').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+  renderIssues();
+}));
+$('#downloadIssues').addEventListener('click',()=>{
+  const ds=state.dataset;if(!ds) return;
+  const lines=[['Severity','Row','BITS ID','Course','Problem'],...ds.issues.map(i=>[i.severity,i.row??'',i.id,i.course,i.message])];
+  downloadBlob(new Blob(['﻿'+lines.map(r=>r.map(csvCell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),`validation_issues_${safeName(ds.fileName.replace(/\.[^.]+$/,''))}_${localDateStamp()}.csv`);
+  showToast('success','Issue list downloaded.');
+});
+
+/* =====================================================================
+   GRADE SCHEME LOGIC
+   ===================================================================== */
+/** Returns {valid, errors[], fieldErrors{ 'i-min': true }} for a scheme ordered A → E. */
+function validateGradeRanges(scheme){
+  const errors=[],fieldErrors={};
+  const flag=(i,f)=>{fieldErrors[`${i}-${f}`]=true;};
+  scheme.forEach((b,i)=>['min','max'].forEach(f=>{
+    const v=b[f];
+    if(!Number.isInteger(v)||v<0||v>100){
+      errors.push(`${b.grade} ${f==='min'?'Min':'Max'} must be a whole number from 0 to 100.`);flag(i,f);
+    }
+  }));
+  if(errors.length) return {valid:false,errors,fieldErrors};
+
+  scheme.forEach((b,i)=>{
+    if(b.min>=b.max){errors.push(`${b.grade}: Min (${b.min}) must be less than Max (${b.max}).`);flag(i,'min');flag(i,'max');}
+  });
+  const top=scheme[0],bottom=scheme[scheme.length-1];
+  if(top.max!==100){errors.push(`${top.grade} must end at 100 — marks ${top.max+1}–100 would get no grade.`);flag(0,'max');}
+  if(bottom.min!==0){errors.push(`${bottom.grade} must start at 0 — marks 0–${bottom.min-1} would get no grade.`);flag(scheme.length-1,'min');}
+  for(let i=1;i<scheme.length;i++){
+    const upper=scheme[i-1],lower=scheme[i];
+    if(lower.max>=upper.min){
+      errors.push(`${lower.grade} range overlaps ${upper.grade} range (${lower.grade} Max ${lower.max} ≥ ${upper.grade} Min ${upper.min}).`);
+      flag(i,'max');flag(i-1,'min');
+    }else if(lower.max<upper.min-1){
+      const a=lower.max+1,b=upper.min-1;
+      errors.push(`Gap between ${lower.grade} and ${upper.grade}: ${a===b?`mark ${a} is`:`marks ${a}–${b} are`} not covered.`);
+      flag(i,'max');flag(i-1,'min');
+    }
+  }
+  return {valid:errors.length===0,errors,fieldErrors};
+}
+
+/** Grade for a mark (Min and Max inclusive). Returns null if no band covers the mark. */
+function assignGrade(mark,scheme){
+  for(const b of scheme) if(mark>=b.min&&mark<=b.max) return b.grade;
+  return null;
+}
+function calculateGradeDistribution(students,scheme){
+  const counts=Object.fromEntries(GRADES.map(g=>[g,0]));
+  let ungraded=0;
+  students.forEach(s=>{const g=assignGrade(s.marks,scheme);if(g) counts[g]++; else ungraded++;});
+  return {counts,ungraded,total:students.length};
+}
+function simulateGradeChanges(students,fromScheme,toScheme){
+  const current=calculateGradeDistribution(students,fromScheme);
+  const simulated=calculateGradeDistribution(students,toScheme);
+  const changes=[],transitions=new Map();
+  students.forEach(s=>{
+    const a=assignGrade(s.marks,fromScheme),b=assignGrade(s.marks,toScheme);
+    if(a!==b){
+      changes.push({student:s,from:a,to:b});
+      const k=`${a}→${b}`;
+      transitions.set(k,(transitions.get(k)||{from:a,to:b,count:0}));
+      transitions.get(k).count++;
+    }
+  });
+  const tlist=[...transitions.values()].sort((x,y)=>gradeIndex(x.from)-gradeIndex(y.from)||gradeIndex(x.to)-gradeIndex(y.to));
+  return {current,simulated,changes,transitions:tlist};
+}
+const isPassing=(grade,passGrade)=>grade!=null&&gradeIndex(grade)<=gradeIndex(passGrade);
+
+/* =====================================================================
+   STATISTICS
+   ===================================================================== */
+function calculateStatistics(marks){
+  const n=marks.length;
+  if(!n) return {n:0,mean:null,median:null,min:null,max:null,std:null,sorted:[]};
+  const sorted=[...marks].sort((a,b)=>a-b);
+  const mean=sorted.reduce((a,b)=>a+b,0)/n;
+  const median=n%2?sorted[(n-1)/2]:(sorted[n/2-1]+sorted[n/2])/2;
+  const std=Math.sqrt(sorted.reduce((a,b)=>a+(b-mean)**2,0)/n);
+  return {n,mean,median,min:sorted[0],max:sorted[n-1],std,sorted};
+}
+/** Percentile rank: (students below + half of ties) / n × 100. */
+function percentileRanks(sorted){
+  const n=sorted.length,map=new Map();
+  let i=0;
+  while(i<n){
+    let j=i;while(j<n&&sorted[j]===sorted[i]) j++;
+    map.set(sorted[i],n?((i+(j-i)/2)/n)*100:0);
+    i=j;
+  }
+  return map;
+}
+
+/* =====================================================================
+   COURSE VIEW (derived data cache)
+   ===================================================================== */
+function buildCourseView(){
+  const ds=state.dataset;
+  if(!ds||!state.course){state.view=null;return;}
+  const all=ds.students.filter(s=>s.course===state.course);
+  const students=all.filter(s=>s.valid);
+  const stats=calculateStatistics(students.map(s=>s.marks));
+  const pct=percentileRanks(stats.sorted);
+  const markCounts=new Map();
+  students.forEach(s=>markCounts.set(s.marks,(markCounts.get(s.marks)||0)+1));
+  state.view={all,students,stats,pct,markCounts,excluded:all.length-students.length,blocking:courseBlockingErrors(state.course)};
+}
+
+/* =====================================================================
+   RENDERING — course select, empty state, banners
+   ===================================================================== */
+function renderCourseOptions(){
+  const sel=$('#course');
+  const ds=state.dataset;
+  // Rebuild from scratch so options from a previous upload never survive.
+  sel.replaceChildren(el('option',{value:'',text:ds?'Select a course to begin':'Upload a marks file first'}));
+  if(ds){
+    ds.courses.forEach(c=>{
+      const cs=state.courses[c.name];
+      const o=new Option(`${c.name} — ${plural(c.valid,'student')}${c.errors?` · ${c.errors} with errors`:''}${cs&&cs.finalized?' · ✓ finalized':''}`,c.name);
+      sel.add(o);
+    });
+  }
+  sel.value=state.course||'';
+  updateCourseAvailability();
+}
+function updateCourseAvailability(){
+  const sel=$('#course'),hint=$('#courseHint');
+  const hasName=state.instructor.length>0;
+  const ds=state.dataset;
+  sel.disabled=!ds||!ds.courses.length;
+  hint.classList.remove('error');
+  if(!ds) hint.textContent='Upload a marks file to see its courses.';
+  else if(!ds.courses.length) hint.textContent='No course names were found in this file.';
+  else if(!hasName){hint.textContent='Enter your instructor name before choosing a course.';}
+  else hint.textContent=`${plural(ds.courses.length,'course')} available in "${ds.fileName}".`;
+}
+
+function renderEmptyState(){
+  const box=$('#emptyState');
+  const ds=state.dataset;
+  const showDash=!!(ds&&state.course);
+  box.classList.toggle('hidden',showDash);
+  $('#dashboard').classList.toggle('hidden',!showDash);
+  if(showDash) return;
+  const icon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5m0 14h16M8 16v-4m4 4V8m4 8v-6"/></svg>';
+  const upIcon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V5m0 0l-4 4m4-4l4 4M5 19h14"/></svg>';
+  const steps=[
+    [!!state.instructor,'Enter your instructor name'],
+    [!!ds,'Upload an Excel marks file'],
+    [false,'Select a course']
+  ];
+  box.replaceChildren(el('div',{class:'empty'},[
+    el('div',{class:'empty-ico','aria-hidden':'true',html:ds?icon:upIcon}),
+    el('strong',{text:ds?'Select a course to view analytics.':'Upload an Excel marks file to begin grading.'}),
+    el('p',{text:ds?'Choose a course from the Grading session card to see statistics, configure grade ranges and export grades.':'Analytics, grade configuration and export appear here once marks are loaded.'}),
+    el('ol',{class:'getting-started','aria-label':'Getting started'},steps.map(([done,t],i)=>el('li',{class:done?'done':''},[
+      el('span',{class:'ico','aria-hidden':'true',text:done?'✓':String(i+1)}),
+      el('span',{class:'t',text:t}),done?el('span',{class:'sr-only',text:'(done)'}):null
+    ])))
+  ]));
+}
+
+function renderCourseBanner(){
+  const v=state.view,box=$('#courseBanner');
+  box.replaceChildren();
+  if(!v) return;
+  if(v.blocking){
+    box.append(el('div',{class:'banner banner-err',role:'status',style:'margin-top:14px'},[
+      el('span',{class:'b-ico','aria-hidden':'true',text:'✕'}),
+      el('span',{},[
+        document.createTextNode(`${plural(v.blocking,'row')} affecting this course ${v.blocking===1?'has':'have'} data errors. Analytics use the ${plural(v.students.length,'valid row')} only, and export is blocked until the file is corrected and re-uploaded. `),
+        el('button',{class:'linkish',type:'button',onclick:openIssues,text:'View issues'})
+      ])
+    ]));
+  }
+}
+
+/* =====================================================================
+   RENDERING — dashboard (KPIs, histogram, distribution)
+   ===================================================================== */
+function renderKPIs(){
+  const v=state.view,cs=courseState();
+  const st=v?v.stats:{};
+  animateNumber($('#kStudents'),v?st.n:null);
+  $('#kStudentsFoot').textContent=v&&v.excluded?`${v.excluded} excluded (data errors)`:'graded in this course';
+  animateNumber($('#kAvg'),st.mean,{decimals:2});
+  animateNumber($('#kMed'),st.median,{decimals:2});
+  animateNumber($('#kStd'),st.std,{decimals:2});
+  animateNumber($('#kMin'),st.min);
+  animateNumber($('#kMax'),st.max);
+  let pass=null;
+  if(v&&st.n){
+    const passed=v.students.filter(s=>isPassing(assignGrade(s.marks,cs.applied),cs.passGrade)).length;
+    pass=passed/st.n*100;
+  }
+  animateNumber($('#kPass'),pass,{decimals:1,suffix:'%'});
+  $('#kPassFoot').textContent=`grade ${cs?cs.passGrade:'D'} or above`;
+}
+
+function renderDistribution(container,students,scheme,passGrade){
+  const dist=calculateGradeDistribution(students,scheme);
+  const max=Math.max(1,...GRADES.map(g=>dist.counts[g]));
+  if(container.children.length!==GRADES.length){
+    container.replaceChildren(...GRADES.map(g=>el('div',{class:'dist-row',role:'listitem','data-g':g},[
+      el('span',{class:'dist-grade',text:g}),
+      el('div',{class:'dist-track','aria-hidden':'true'},el('div',{class:'dist-fill'})),
+      el('span',{class:'dist-val'})
+    ])));
+  }
+  GRADES.forEach((g,i)=>{
+    const row=container.children[i],n=dist.counts[g];
+    const pct=dist.total?n/dist.total*100:0;
+    const fill=row.querySelector('.dist-fill');
+    const fail=!isPassing(g,passGrade);
+    fill.classList.toggle('fail',fail);
+    fill.style.width=(n/max*100)+'%';
+    row.querySelector('.dist-val').replaceChildren(el('b',{class:'num',text:String(n)}),document.createTextNode(` · ${pct.toFixed(0)}%`));
+    row.setAttribute('aria-label',`Grade ${g}: ${plural(n,'student')}, ${pct.toFixed(1)} percent${fail?', below pass':''}`);
+  });
+  return dist;
+}
+
+/* ---------- Histogram ---------- */
+let histRaf=null;
+function histogramBins(marks){
+  const bins=Array(10).fill(0);
+  // Bins: 0–9, 10–19, … 80–89, 90–100 (100 belongs to the last bin).
+  marks.forEach(m=>{bins[Math.min(9,Math.max(0,Math.floor(m/10)))]++;});
+  return bins;
+}
+const BIN_LABELS=Array.from({length:10},(_,i)=>i<9?`${i*10}–${i*10+9}`:'90–100');
+function cssVar(name){return getComputedStyle(document.documentElement).getPropertyValue(name).trim();}
+function niceMax(v){
+  if(v<=5) return 5;
+  const pow=Math.pow(10,Math.floor(Math.log10(v)));
+  for(const m of [1,2,2.5,5,10]) if(m*pow>=v) return m*pow;
+  return 10*pow;
+}
+
+function drawHistogram({animate=false}={}){
+  const v=state.view,cs=courseState();
+  const canvas=$('#hist'),wrap=$('#histWrap');
+  const hasData=v&&v.stats.n>0;
+  $('#histEmpty').classList.toggle('hidden',hasData);
+  $('#histBody').classList.toggle('hidden',!hasData);
+  if(!hasData){
+    $('#histEmpty').replaceChildren(el('div',{class:'empty'},[el('strong',{text:'No students found for this course.'}),el('p',{text:'There are no valid marks to chart. Check the validation issues for this course.'})]));
+    return;
+  }
+  if(histRaf){cancelAnimationFrame(histRaf);histRaf=null;}
+
+  const marks=v.students.map(s=>s.marks);
+  const bins=histogramBins(marks);
+  const {mean,std,n}=v.stats;
+  const showCurve=n>=3&&std>0;
+  const scheme=cs.draft;
+  const schemeOk=validateGradeRanges(scheme).valid;
+
+  const dpr=window.devicePixelRatio||1;
+  const W=wrap.clientWidth,H=wrap.clientHeight;
+  if(!W||!H) return;
+  canvas.width=Math.round(W*dpr);canvas.height=Math.round(H*dpr);
+  const ctx=canvas.getContext('2d');
+
+  const pad={l:34,r:10,t:22,b:30};
+  const cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
+  const xOf=m=>pad.l+(m/100)*cw;
+  // Normal curve scaled to expected students per 10-mark bin: n × 10 × pdf(x).
+  const pdf=x=>Math.exp(-0.5*((x-mean)/std)**2)/(std*Math.sqrt(2*Math.PI));
+  const curvePeak=showCurve?n*10*pdf(mean):0;
+  const yMax=niceMax(Math.max(...bins,curvePeak)*1.08);
+  const yOf=c=>pad.t+ch-(c/yMax)*ch;
+
+  const col={bar:cssVar('--chart-bar'),grid:cssVar('--chart-grid'),text:cssVar('--chart-text'),curve:cssVar('--chart-curve'),mean:cssVar('--chart-mean'),bandA:cssVar('--chart-band-a'),bandB:cssVar('--chart-band-b'),fail:cssVar('--danger')};
+  const binRects=[];
+
+  const frame=p=>{
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,W,H);
+    ctx.font='11px '+cssVar('--font');
+
+    // Grade band shading (uses the scheme being edited so the chart follows the simulator).
+    if(schemeOk){
+      scheme.forEach((b,i)=>{
+        const x0=xOf(b.min),x1=xOf(Math.min(100,b.max+1));
+        ctx.fillStyle=i%2?col.bandB:col.bandA;
+        ctx.fillRect(x0,pad.t,x1-x0,ch);
+        if(x1-x0>16){
+          ctx.fillStyle=col.text;ctx.textAlign='center';ctx.textBaseline='bottom';
+          ctx.fillText(b.grade,(x0+x1)/2,pad.t-6);
+        }
+      });
+    }
+    // Grid + y ticks
+    ctx.strokeStyle=col.grid;ctx.lineWidth=1;ctx.fillStyle=col.text;ctx.textAlign='right';ctx.textBaseline='middle';
+    const ticks=4;
+    for(let t=0;t<=ticks;t++){
+      const val=yMax/ticks*t,y=Math.round(yOf(val))+.5;
+      ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke();
+      ctx.fillText(Number.isInteger(val)?String(val):val.toFixed(1),pad.l-6,y);
+    }
+    // Bars
+    const bw=cw/10;
+    binRects.length=0;
+    bins.forEach((c,i)=>{
+      const x=pad.l+i*bw+bw*0.14,w=bw*0.72;
+      const h=(c/yMax)*ch*p;
+      ctx.fillStyle=col.bar;
+      ctx.beginPath();
+      if(ctx.roundRect) ctx.roundRect(x,pad.t+ch-h,w,h,[4,4,0,0]); else ctx.rect(x,pad.t+ch-h,w,h);
+      ctx.fill();
+      binRects.push({x:pad.l+i*bw,w:bw,i,c,top:pad.t+ch-(c/yMax)*ch});
+      ctx.fillStyle=col.text;ctx.textAlign='center';ctx.textBaseline='top';
+      // Narrow screens: show each bin's lower bound only so labels never collide.
+      ctx.fillText(bw<44?(i<9?String(i*10):'90+'):BIN_LABELS[i],pad.l+i*bw+bw/2,pad.t+ch+8);
+    });
+    // Normal curve
+    if(showCurve){
+      ctx.strokeStyle=col.curve;ctx.lineWidth=2;ctx.beginPath();
+      const xEnd=100*p;
+      for(let x=0;x<=xEnd;x+=0.5){
+        const px=xOf(x),py=yOf(n*10*pdf(x));
+        x===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+      }
+      ctx.stroke();
+    }
+    // Mean marker
+    if(Number.isFinite(mean)){
+      const mx=Math.round(xOf(mean))+.5;
+      ctx.save();ctx.setLineDash([4,4]);ctx.strokeStyle=col.mean;ctx.globalAlpha=.7;ctx.lineWidth=1.25;
+      ctx.beginPath();ctx.moveTo(mx,pad.t);ctx.lineTo(mx,pad.t+ch);ctx.stroke();ctx.restore();
+    }
+  };
+
+  const run=animate&&!reducedMotion();
+  if(run){
+    const t0=performance.now();
+    const loop=now=>{
+      const p=Math.min(1,(now-t0)/380);
+      frame(1-Math.pow(1-p,3));
+      histRaf=p<1?requestAnimationFrame(loop):null;
+    };
+    histRaf=requestAnimationFrame(loop);
+  }else frame(1);
+  canvas._bins=binRects;
+
+  // Legend + accessible summary
+  const legend=$('#histLegend');
+  legend.replaceChildren(
+    el('span',{},[el('i',{class:'sw',style:`background:${col.bar}`}),document.createTextNode('Students per range')]),
+    showCurve?el('span',{},[el('i',{class:'sw-line',style:`border-color:${col.curve}`}),document.createTextNode('Normal curve (fitted)')]):el('span',{text:n<3?'Normal curve needs at least 3 students':'Normal curve hidden: all marks are identical (σ = 0)'}),
+    el('span',{},[el('i',{class:'sw-dash',style:`border-color:${col.mean}`}),document.createTextNode(`Mean ${fmt(mean,1)}`)])
+  );
+  const peak=bins.indexOf(Math.max(...bins));
+  canvas.setAttribute('aria-label',`Histogram of ${plural(n,'student')}. Most students scored ${BIN_LABELS[peak]}. Mean ${fmt(mean,1)}, standard deviation ${fmt(std,1)}.`);
+  $('#histTable').replaceChildren(
+    el('thead',{},el('tr',{},[el('th',{text:'Marks range'}),el('th',{text:'Students'})])),
+    el('tbody',{},bins.map((c,i)=>el('tr',{},[el('td',{text:BIN_LABELS[i]}),el('td',{text:String(c)})])))
+  );
+  $('#histSub').textContent=schemeOk?(isSimulating()?'Grade bands shown are the simulated scheme.':'Students per 10-mark range, with grade bands shaded.'):'Grade bands hidden while the scheme is invalid.';
+}
+
+function histHover(e){
+  const canvas=$('#hist'),tip=$('#histTip');
+  const bins=canvas._bins||[];
+  const r=canvas.getBoundingClientRect();
+  const x=e.clientX-r.left;
+  const b=bins.find(b=>x>=b.x&&x<b.x+b.w);
+  if(!b||!state.view){tip.classList.remove('show');return;}
+  const n=state.view.stats.n;
+  tip.textContent=`${BIN_LABELS[b.i]}: ${plural(b.c,'student')} (${n?(b.c/n*100).toFixed(1):0}%)`;
+  tip.style.left=(b.x+b.w/2)+'px';
+  tip.style.top=Math.max(18,b.top)+'px';
+  tip.classList.add('show');
+}
+$('#hist').addEventListener('pointermove',histHover);
+$('#hist').addEventListener('pointerdown',histHover);
+$('#hist').addEventListener('pointerleave',()=>$('#histTip').classList.remove('show'));
+
+let resizeRaf=null;
+if('ResizeObserver' in window){
+  new ResizeObserver(()=>{
+    if(resizeRaf) cancelAnimationFrame(resizeRaf);
+    resizeRaf=requestAnimationFrame(()=>{if(state.view&&!histRaf) drawHistogram({animate:false});});
+  }).observe($('#histWrap'));
+}
+
+/* =====================================================================
+   RENDERING — grade configuration editor & scale
+   ===================================================================== */
+function buildSchemeEditor(){
+  const box=$('#bands');
+  box.replaceChildren(...GRADES.map((g,i)=>{
+    const mk=f=>el('input',{class:'input',type:'number',inputmode:'numeric',min:'0',max:'100',step:'1',
+      id:`band-${i}-${f}`,'data-i':String(i),'data-f':f,'aria-label':`${g} ${f==='min'?'minimum':'maximum'} mark`});
+    return el('div',{class:'band','data-i':String(i)},[
+      el('span',{class:'band-grade',text:g}),
+      mk('min'),el('span',{class:'dash','aria-hidden':'true',text:'–'}),mk('max'),
+      el('span',{class:'band-count num','aria-live':'off'})
+    ]);
+  }));
+  // Pass grade options
+  $('#passGrade').replaceChildren(...GRADES.map(g=>new Option(g,g)));
+  $('#gradeFilter').replaceChildren(new Option('All grades',''),...GRADES.map(g=>new Option(g,g)));
+
+  // Scale track: 8 segments + 7 boundary handles, created once and repositioned on change.
+  const track=$('#track');
+  track.replaceChildren(
+    ...GRADES.map(g=>el('div',{class:'seg','data-g':g,'aria-hidden':'true',text:g})),
+    ...GRADES.slice(0,-1).map((g,i)=>el('div',{class:'handle',role:'slider',tabindex:'0','data-b':String(i),
+      'aria-label':`Boundary between ${GRADES[i+1]} and ${g} (minimum mark for ${g})`,'aria-valuemin':'1','aria-valuemax':'100'},el('span',{class:'val num'})))
+  );
+  $('#defaultChips').replaceChildren(...DEFAULT_SCHEME.map(b=>el('span',{},[el('b',{text:b.grade}),document.createTextNode(`${b.min}–${b.max}`)])));
+}
+
+function syncEditorInputs(){
+  const cs=courseState();if(!cs) return;
+  const locked=state.autoLink;
+  cs.draft.forEach((b,i)=>{
+    ['min','max'].forEach(f=>{
+      const inp=$(`#band-${i}-${f}`);
+      const val=Number.isFinite(b[f])?String(b[f]):'';
+      if(document.activeElement!==inp&&inp.value!==val) inp.value=val;
+      const isFixed=locked&&((i===0&&f==='max')||(i===GRADES.length-1&&f==='min'));
+      inp.readOnly=isFixed;
+      inp.title=isFixed?`Fixed at ${f==='max'?100:0} while auto-link is on`:'';
+    });
+  });
+  $('#passGrade').value=cs.passGrade;
+  $('#autoLink').setAttribute('aria-checked',String(state.autoLink));
+}
+
+function renderSchemeValidation(){
+  const cs=courseState();if(!cs) return;
+  const res=validateGradeRanges(cs.draft);
+  const box=$('#schemeValidation');
+  box.className='validation '+(res.valid?'ok':'bad');
+  if(res.valid){
+    box.replaceChildren(el('strong',{text:'✓ Valid grading scheme'}),document.createTextNode(' — covers 0–100 with no gaps or overlaps.'));
+  }else{
+    box.replaceChildren(el('strong',{text:'⚠ Invalid grading scheme'}),el('ul',{},res.errors.slice(0,6).map(e=>el('li',{text:e}))));
+  }
+  // Field-level flags (not colour alone: aria-invalid + message list above)
+  $$('#bands .band').forEach(row=>{
+    const i=+row.dataset.i;
+    let any=false;
+    ['min','max'].forEach(f=>{
+      const bad=!!res.fieldErrors[`${i}-${f}`];any=any||bad;
+      $(`#band-${i}-${f}`).setAttribute('aria-invalid',String(bad));
+    });
+    row.classList.toggle('has-error',any);
+  });
+  // Student counts per band under the draft
+  const students=state.view?state.view.students:[];
+  cs.draft.forEach((b,i)=>{
+    const n=Number.isFinite(b.min)&&Number.isFinite(b.max)?students.filter(s=>s.marks>=b.min&&s.marks<=b.max).length:0;
+    $$('#bands .band')[i].querySelector('.band-count').textContent=String(n);
+  });
+  return res;
+}
+
+function renderScale(res){
+  const cs=courseState();if(!cs) return;
+  res=res||validateGradeRanges(cs.draft);
+  const segs=$$('#track .seg'),handles=$$('#track .handle');
+  const pos=v=>(v/101*100)+'%';
+  const badGrades=new Set();
+  Object.keys(res.fieldErrors).forEach(k=>badGrades.add(+k.split('-')[0]));
+  cs.draft.forEach((b,i)=>{
+    const seg=segs[i];
+    if(!Number.isFinite(b.min)||!Number.isFinite(b.max)||b.max<b.min){seg.style.width='0';seg.classList.add('bad');return;}
+    seg.style.left=pos(Math.max(0,b.min));
+    seg.style.width=pos(Math.min(101,b.max+1)-Math.max(0,b.min));
+    seg.classList.toggle('bad',badGrades.has(i));
+    seg.textContent=(b.max-b.min>=4)?b.grade:'';
+  });
+  handles.forEach((h,i)=>{
+    const upper=cs.draft[i],lower=cs.draft[i+1];
+    const ok=res.valid||(Number.isInteger(upper.min)&&lower.max===upper.min-1);
+    h.classList.toggle('hidden',!ok);
+    if(!ok) return;
+    const bounds=handleBounds(i);
+    h.style.left=pos(upper.min);
+    h.setAttribute('aria-valuenow',String(upper.min));
+    h.setAttribute('aria-valuemin',String(bounds.lo));
+    h.setAttribute('aria-valuemax',String(bounds.hi));
+    h.setAttribute('aria-valuetext',`${GRADES[i]} starts at ${upper.min}; ${GRADES[i+1]} ends at ${lower.max}`);
+    h.querySelector('.val').textContent=String(upper.min);
+  });
+  // Density strip (marks of the students in this course)
+  const dens=$('#density');
+  const v=state.view;
+  if(dens._course!==state.course||dens._n!==(v?v.stats.n:0)){
+    dens._course=state.course;dens._n=v?v.stats.n:0;
+    const maxC=v?Math.max(1,...v.markCounts.values()):1;
+    dens.replaceChildren(...(v?[...v.markCounts.entries()].map(([m,c])=>el('i',{style:`left:${m/101*100}%;height:${Math.max(3,c/maxC*100)}%`,title:`${m}: ${plural(c,'student')}`})):[]));
+  }
+}
+/** A boundary handle between grade i (upper) and i+1 (lower) may move only while both bands keep Min < Max. */
+function handleBounds(i){
+  const cs=courseState();
+  const upper=cs.draft[i],lower=cs.draft[i+1];
+  return {lo:lower.min+2,hi:upper.max-1};
+}
+function setBoundary(i,value){
+  const cs=courseState();
+  const {lo,hi}=handleBounds(i);
+  const v=Math.max(lo,Math.min(hi,Math.round(value)));
+  if(cs.draft[i].min===v) return;
+  cs.draft[i].min=v;
+  cs.draft[i+1].max=v-1;
+  onDraftChanged([i,i+1]);
+}
+
+/* Handle drag + keyboard */
+(function wireHandles(){
+  const track=$('#track');
+  let drag=null;
+  track.addEventListener('pointerdown',e=>{
+    const h=e.target.closest('.handle');if(!h) return;
+    e.preventDefault();
+    drag={i:+h.dataset.b,h};
+    h.classList.add('dragging');h.setPointerCapture(e.pointerId);h.focus();
+  });
+  track.addEventListener('pointermove',e=>{
+    if(!drag) return;
+    const r=track.getBoundingClientRect();
+    setBoundary(drag.i,(e.clientX-r.left)/r.width*101);
+  });
+  const end=()=>{if(drag){drag.h.classList.remove('dragging');drag=null;}};
+  track.addEventListener('pointerup',end);
+  track.addEventListener('pointercancel',end);
+  track.addEventListener('keydown',e=>{
+    const h=e.target.closest('.handle');if(!h) return;
+    const i=+h.dataset.b,cur=courseState().draft[i].min;
+    const step={ArrowLeft:-1,ArrowDown:-1,ArrowRight:1,ArrowUp:1,PageDown:-5,PageUp:5}[e.key];
+    if(step){e.preventDefault();setBoundary(i,cur+step);}
+    else if(e.key==='Home'){e.preventDefault();setBoundary(i,handleBounds(i).lo);}
+    else if(e.key==='End'){e.preventDefault();setBoundary(i,handleBounds(i).hi);}
+  });
+})();
+
+/* Typed boundary edits */
+$('#bands').addEventListener('input',e=>{
+  const inp=e.target.closest('input[data-f]');if(!inp) return;
+  const cs=courseState();if(!cs) return;
+  const i=+inp.dataset.i,f=inp.dataset.f;
+  const raw=inp.value.trim();
+  const v=raw===''?NaN:Number(raw);
+  cs.draft[i][f]=v;
+  const touched=[i];
+  // Auto-link keeps the neighbouring boundary continuous (successor of the original cascade).
+  if(state.autoLink&&Number.isInteger(v)){
+    if(f==='min'&&i<GRADES.length-1){cs.draft[i+1].max=v-1;touched.push(i+1);}
+    if(f==='max'&&i>0){cs.draft[i-1].min=v+1;touched.push(i-1);}
+  }
+  onDraftChanged(touched);
+});
+
+function liftBands(indices){
+  if(reducedMotion()) return;
+  indices.forEach(i=>{
+    const row=$$('#bands .band')[i];if(!row) return;
+    row.classList.add('lift');
+    clearTimeout(row._lt);row._lt=setTimeout(()=>row.classList.remove('lift'),220);
+  });
+}
+
+function onDraftChanged(touched=[]){
+  markDirty();
+  syncEditorInputs();
+  const res=renderSchemeValidation();
+  renderScale(res);
+  liftBands(touched);
+  renderSimulator();
+  drawHistogram({animate:false});
+  renderStudentTable();
+  renderReview();
+}
+
+$('#autoLink').addEventListener('click',()=>{
+  state.autoLink=!state.autoLink;
+  syncEditorInputs();
+  showToast('info',state.autoLink?'Auto-link on':'Auto-link off',state.autoLink?'Editing a boundary also moves the neighbouring grade.':'Each value is edited independently; gaps and overlaps will be flagged.',{duration:3000});
+});
+$('#passGrade').addEventListener('change',e=>{
+  const cs=courseState();if(!cs) return;
+  cs.passGrade=e.target.value;
+  markDirty();
+  renderKPIs();
+  renderDistribution($('#gradeDist'),state.view.students,cs.applied,cs.passGrade);
+  renderStudentTable();
+  renderReview();
+});
+
+/* Reset (single, clear confirmation instead of two stacked confirm() popups) */
+$('#resetRanges').addEventListener('click',()=>openDialog($('#resetDialog')));
+$('#confirmReset').addEventListener('click',()=>{
+  const cs=courseState();
+  closeDialog($('#resetDialog'));
+  if(!cs) return;
+  cs.draft=cloneScheme(DEFAULT_SCHEME);
+  onDraftChanged(GRADES.map((_,i)=>i));
+  if(isSimulating()) showToast('info','Default ranges loaded into the simulator.','Review the impact, then apply or cancel.');
+  else showToast('success','Grade ranges are at their default values.');
+});
+
+/* =====================================================================
+   RENDERING — simulator
+   ===================================================================== */
+function renderSimulator(){
+  const cs=courseState(),v=state.view,body=$('#simBody'),badge=$('#simBadge');
+  if(!cs||!v) return;
+  const sim=isSimulating();
+  $('#fAffected').classList.toggle('hidden',!sim);
+  if(!sim){
+    if(state.table.affected||state.table.transition){state.table.affected=false;state.table.transition=null;$('#fAffected').setAttribute('aria-pressed','false');}
+    badge.className='badge badge-ok';badge.textContent='Official scheme active';
+    body.replaceChildren(
+      el('p',{class:'sim-empty',text:'Adjust any boundary — type a value or drag a handle on the scale — to preview who would change grade. The official scheme stays untouched until you apply.'}),
+      el('p',{class:'sub-title',text:'Official scheme'}),
+      el('div',{class:'scheme-chips'},cs.applied.map(b=>el('span',{},[el('b',{text:b.grade}),document.createTextNode(`${b.min}–${b.max}`)])))
+    );
+    return;
+  }
+  badge.className='badge badge-sim';
+  badge.replaceChildren(el('span',{class:'pulse-dot','aria-hidden':'true'}),document.createTextNode('Simulating'));
+  const res=validateGradeRanges(cs.draft);
+  const actions=el('div',{class:'sim-actions'},[
+    el('button',{class:'btn btn-primary',type:'button',id:'applySim',disabled:!res.valid,onclick:applySimulation},[
+      el('span',{class:'lbl',text:'Apply changes'}),el('span',{class:'spinner','aria-hidden':'true'})]),
+    el('button',{class:'btn',type:'button',onclick:cancelSimulation,text:'Cancel simulation'})
+  ]);
+  if(!res.valid){
+    body.replaceChildren(el('div',{class:'banner banner-warn'},[el('span',{class:'b-ico','aria-hidden':'true',text:'!'}),el('span',{text:'Fix the grading scheme errors to see the simulated impact. Changes cannot be applied while the scheme is invalid.'})]),actions);
+    return;
+  }
+  const r=simulateGradeChanges(v.students,cs.applied,cs.draft);
+  const maxC=Math.max(1,...GRADES.map(g=>Math.max(r.current.counts[g],r.simulated.counts[g])));
+  const impactNum=el('span',{class:'big num'});
+  const impact=el('div',{class:'impact'},[impactNum,el('span',{class:'txt',text:r.changes.length===1?'student would receive a different grade.':'students would receive a different grade.'})]);
+  const prev=body.querySelector('.impact .big');
+  if(prev&&typeof prev._v==='number') impactNum._v=prev._v;
+  const table=el('table',{class:'sim-table'},[
+    el('caption',{class:'sr-only',text:'Current versus simulated grade distribution'}),
+    el('thead',{},el('tr',{},[el('th',{text:'Grade'}),el('th',{class:'n',text:'Current'}),el('th',{class:'n',text:'Simulated'}),el('th',{text:'Change'}),el('th',{text:''})])),
+    el('tbody',{},GRADES.map(g=>{
+      const a=r.current.counts[g],b=r.simulated.counts[g],d=b-a;
+      return el('tr',{},[
+        el('td',{},el('b',{text:g})),
+        el('td',{class:'n',text:String(a)}),
+        el('td',{class:'n',text:String(b)}),
+        el('td',{},el('span',{class:`delta ${d>0?'up':d<0?'down':'zero'}`,text:d>0?`▲ +${d}`:d<0?`▼ ${d}`:'—'})),
+        el('td',{style:'width:34%'},el('div',{class:'sim-bars','aria-hidden':'true'},[
+          el('span',{class:'cur',style:`width:${a/maxC*100}%`}),el('span',{class:'new',style:`width:${b/maxC*100}%`})]))
+      ]);
+    }))
+  ]);
+  const legend=el('div',{class:'legend'},[
+    el('span',{},[el('i',{class:'sw',style:'background:var(--sim-current)'}),document.createTextNode('Current (official)')]),
+    el('span',{},[el('i',{class:'sw',style:'background:var(--primary)'}),document.createTextNode('Simulated')])
+  ]);
+  const trans=r.transitions.length?el('div',{},[
+    el('p',{class:'sub-title',text:'Grade transitions — click to see the students'}),
+    el('div',{class:'transitions'},r.transitions.map(t=>{
+      const active=state.table.transition&&state.table.transition.from===t.from&&state.table.transition.to===t.to;
+      return el('button',{class:'chip',type:'button','aria-pressed':String(!!active),onclick:()=>filterByTransition(t),
+        'aria-label':`${plural(t.count,'student')} from ${t.from} to ${t.to}`},[
+        document.createTextNode(`${t.from} → ${t.to}`),el('span',{class:'cnt',text:`· ${t.count}`})]);
+    }))
+  ]):el('p',{class:'sim-empty',text:'No student changes grade with these boundaries.'});
+  body.replaceChildren(impact,table,legend,trans,actions);
+  animateNumber(impactNum,r.changes.length);
+}
+
+function applySimulation(){
+  const cs=courseState();
+  if(!cs||!validateGradeRanges(cs.draft).valid) return;
+  const n=simulateGradeChanges(state.view.students,cs.applied,cs.draft).changes.length;
+  cs.applied=cloneScheme(cs.draft);
+  state.table.transition=null;state.table.affected=false;$('#fAffected').setAttribute('aria-pressed','false');
+  markDirty();
+  renderCourse({animate:false});
+  showToast('success','Grade configuration applied.',n?`${plural(n,'student')} received a different grade.`:'No student grades changed.');
+  flashSuccess($('#simBadge'));
+}
+function cancelSimulation(){
+  const cs=courseState();if(!cs) return;
+  cs.draft=cloneScheme(cs.applied);
+  state.table.transition=null;state.table.affected=false;$('#fAffected').setAttribute('aria-pressed','false');
+  onDraftChanged(GRADES.map((_,i)=>i));
+  showToast('info','Simulation cancelled.','The official scheme is unchanged.',{duration:3000});
+}
+function flashSuccess(node){
+  if(!node||reducedMotion()) return;
+  node.animate([{transform:'scale(1)'},{transform:'scale(1.08)'},{transform:'scale(1)'}],{duration:260,easing:'ease-out'});
+}
+function filterByTransition(t){
+  const cur=state.table.transition;
+  state.table.transition=(cur&&cur.from===t.from&&cur.to===t.to)?null:{from:t.from,to:t.to};
+  state.table.page=1;
+  renderSimulator();
+  renderStudentTable();
+  if(state.table.transition) $('#studentsCard').scrollIntoView({behavior:reducedMotion()?'auto':'smooth',block:'start'});
+}
+
+/* =====================================================================
+   RENDERING — student table
+   ===================================================================== */
+function tableRows(){
+  const v=state.view,cs=courseState(),t=state.table;
+  if(!v) return [];
+  const sim=isSimulating()&&validateGradeRanges(cs.draft).valid;
+  const refScheme=sim?cs.draft:cs.applied;
+  const q=t.search.trim().toLowerCase();
+  let rows=v.students.map(s=>{
+    const grade=assignGrade(s.marks,cs.applied);
+    const simGrade=sim?assignGrade(s.marks,cs.draft):grade;
+    // Borderline: within BORDERLINE_GAP marks of the next grade up (in the scheme on screen).
+    const gi=gradeIndex(simGrade);
+    let near=null;
+    if(gi>0){const need=refScheme[gi-1].min-s.marks;if(need>0&&need<=BORDERLINE_GAP) near={need,to:GRADES[gi-1]};}
+    return {s,grade,simGrade,pct:v.pct.get(s.marks),near};
+  });
+  if(q) rows=rows.filter(r=>r.s.id.toLowerCase().includes(q));
+  if(t.grade) rows=rows.filter(r=>(sim?r.simGrade:r.grade)===t.grade);
+  if(t.borderline) rows=rows.filter(r=>r.near);
+  if(sim&&t.affected) rows=rows.filter(r=>r.grade!==r.simGrade);
+  if(sim&&t.transition) rows=rows.filter(r=>r.grade===t.transition.from&&r.simGrade===t.transition.to);
+  const dir=t.sortDir==='asc'?1:-1;
+  const cmp={
+    id:(a,b)=>a.s.id.localeCompare(b.s.id,undefined,{numeric:true,sensitivity:'base'}),
+    marks:(a,b)=>a.s.marks-b.s.marks,
+    grade:(a,b)=>gradeIndex(b.grade)-gradeIndex(a.grade),
+    pct:(a,b)=>a.pct-b.pct
+  }[t.sortKey];
+  rows.sort((a,b)=>(cmp(a,b)||a.s.id.localeCompare(b.s.id,undefined,{numeric:true}))*dir);
+  return rows;
+}
+
+function renderStudentTable(){
+  const v=state.view,cs=courseState(),t=state.table;
+  if(!v) return;
+  const sim=isSimulating()&&validateGradeRanges(cs.draft).valid;
+  const rows=tableRows();
+  const pages=Math.max(1,Math.ceil(rows.length/PAGE_SIZE));
+  t.page=Math.min(Math.max(1,t.page),pages);
+  const start=(t.page-1)*PAGE_SIZE,pageRows=rows.slice(start,start+PAGE_SIZE);
+
+  // Header sort state
+  $$('#studentTable th[data-key]').forEach(th=>{
+    const k=th.dataset.key,active=k===t.sortKey;
+    th.setAttribute('aria-sort',active?(t.sortDir==='asc'?'ascending':'descending'):'none');
+    th.querySelector('.arrow').textContent=active?(t.sortDir==='asc'?'▲':'▼'):'▲▼';
+  });
+  $('#studentTable th[data-key="grade"] .th-btn').firstChild.textContent=sim?'Grade (official → simulated) ':'Grade ';
+
+  const banner=$('#tableBanner');
+  banner.replaceChildren();
+  if(v.excluded) banner.append(el('div',{class:'banner banner-warn'},[el('span',{class:'b-ico','aria-hidden':'true',text:'!'}),el('span',{},[document.createTextNode(`${plural(v.excluded,'row')} with data errors ${v.excluded===1?'is':'are'} not shown. `),el('button',{class:'linkish',type:'button',onclick:openIssues,text:'View issues'})])]));
+  if(sim&&t.transition) banner.append(el('div',{class:'banner banner-info'},[el('span',{class:'b-ico','aria-hidden':'true',text:'i'}),el('span',{text:`Showing students who would move from ${t.transition.from} to ${t.transition.to}.`})]));
+
+  const body=$('#studentRows');
+  const gp=(g)=>el('span',{class:'gpill'+(isPassing(g,cs.passGrade)?'':' fail'),text:g||'—'});
+  body.replaceChildren(...pageRows.map(r=>{
+    const changed=sim&&r.grade!==r.simGrade;
+    const gradeCell=el('td',{'data-label':'Grade'},[
+      changed?el('span',{class:'gchange'},[gp(r.grade),el('span',{class:'arrowx','aria-hidden':'true',text:'→'}),el('span',{class:'sr-only',text:' would become '}),gp(r.simGrade)]):gp(sim?r.simGrade:r.grade),
+      r.near?el('span',{class:'near',title:`${r.near.need} mark${r.near.need>1?'s':''} below ${r.near.to}`,text:`▲${r.near.need} to ${r.near.to}`}):null
+    ]);
+    const tr=el('tr',{tabindex:'0','aria-selected':String(t.selected===r.s.row),'data-row':String(r.s.row)},[
+      el('td',{class:'mono','data-label':'BITS ID',text:r.s.id}),
+      el('td',{'data-label':'Course',text:r.s.course}),
+      el('td',{class:'r num','data-label':'Total Marks',text:String(r.s.marks)}),
+      gradeCell,
+      el('td',{class:'r num','data-label':'Percentile',text:fmt(r.pct,1)})
+    ]);
+    return tr;
+  }));
+  const empty=$('#tableEmpty');
+  const none=!rows.length;
+  empty.classList.toggle('hidden',!none);
+  $('.table-scroll').classList.toggle('hidden',none);
+  if(none){
+    empty.replaceChildren(el('div',{class:'empty'},v.students.length?[
+      el('strong',{text:'No students match your filters.'}),
+      el('button',{class:'btn btn-sm',type:'button',onclick:()=>resetTableFilters(true),text:'Clear filters'})
+    ]:[el('strong',{text:'No students found for this course.'})]));
+  }
+  $('#tableCount').textContent=rows.length?`Showing ${start+1}–${start+pageRows.length} of ${plural(rows.length,'student')}${rows.length!==v.students.length?` (filtered from ${v.students.length})`:''}`:'';
+  $('#pageInfo').textContent=`${t.page} / ${pages}`;
+  $('#prevPage').disabled=t.page<=1;
+  $('#nextPage').disabled=t.page>=pages;
+}
+
+function resetTableFilters(render=true){
+  Object.assign(state.table,{search:'',grade:'',borderline:false,affected:false,transition:null,page:1});
+  $('#search').value='';$('#gradeFilter').value='';
+  $('#fBorder').setAttribute('aria-pressed','false');$('#fAffected').setAttribute('aria-pressed','false');
+  if(render&&state.view){renderStudentTable();renderSimulator();}
+}
+
+let searchDebounce=null;
+$('#search').addEventListener('input',e=>{
+  clearTimeout(searchDebounce);
+  searchDebounce=setTimeout(()=>{state.table.search=e.target.value;state.table.page=1;renderStudentTable();},120);
+});
+$('#gradeFilter').addEventListener('change',e=>{state.table.grade=e.target.value;state.table.page=1;renderStudentTable();});
+$('#fBorder').addEventListener('click',e=>{state.table.borderline=!state.table.borderline;e.currentTarget.setAttribute('aria-pressed',String(state.table.borderline));state.table.page=1;renderStudentTable();});
+$('#fAffected').addEventListener('click',e=>{state.table.affected=!state.table.affected;e.currentTarget.setAttribute('aria-pressed',String(state.table.affected));state.table.page=1;renderStudentTable();});
+$('#clearFilters').addEventListener('click',()=>resetTableFilters(true));
+$('#prevPage').addEventListener('click',()=>{state.table.page--;renderStudentTable();});
+$('#nextPage').addEventListener('click',()=>{state.table.page++;renderStudentTable();});
+$('#studentTable thead').addEventListener('click',e=>{
+  const th=e.target.closest('th[data-key]');if(!th) return;
+  const k=th.dataset.key,t=state.table;
+  if(t.sortKey===k) t.sortDir=t.sortDir==='asc'?'desc':'asc';
+  else {t.sortKey=k;t.sortDir=(k==='id')?'asc':'desc';}
+  t.page=1;renderStudentTable();
+});
+const toggleRow=tr=>{
+  const row=+tr.dataset.row;
+  state.table.selected=state.table.selected===row?null:row;
+  $$('#studentRows tr').forEach(r=>r.setAttribute('aria-selected',String(+r.dataset.row===state.table.selected)));
+};
+$('#studentRows').addEventListener('click',e=>{const tr=e.target.closest('tr[data-row]');if(tr) toggleRow(tr);});
+$('#studentRows').addEventListener('keydown',e=>{
+  const tr=e.target.closest('tr[data-row]');if(!tr) return;
+  if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleRow(tr);}
+  else if(e.key==='ArrowDown'&&tr.nextElementSibling){e.preventDefault();tr.nextElementSibling.focus();}
+  else if(e.key==='ArrowUp'&&tr.previousElementSibling){e.preventDefault();tr.previousElementSibling.focus();}
+});
+
+/* =====================================================================
+   RENDERING — final review
+   ===================================================================== */
+function getFinalizeBlockers(){
+  const cs=courseState(),v=state.view;
+  return [
+    {ok:!!state.instructor,label:'Instructor name entered',fix:'Enter your name in the Grading session card.'},
+    {ok:!!(v&&v.stats.n),label:'Course has students to grade',fix:'This course has no valid student rows.'},
+    {ok:!!(v&&!v.blocking),label:'No data errors for this course',fix:v&&v.blocking?`${plural(v.blocking,'row')} must be fixed in the file and re-uploaded.`:''},
+    {ok:!!(cs&&validateGradeRanges(cs.applied).valid),label:'Official grading scheme is valid',fix:''},
+    {ok:!isSimulating(),label:'No pending simulated changes',fix:'Apply or cancel the changes in the simulator.'},
+    {ok:state.reviewed,label:'Review confirmed',fix:'Tick the confirmation box below.'}
+  ];
+}
+function renderReview(){
+  const cs=courseState(),v=state.view;
+  if(!cs||!v) return;
+  const st=v.stats;
+  const passed=v.students.filter(s=>isPassing(assignGrade(s.marks,cs.applied),cs.passGrade)).length;
+  const items=[
+    ['Instructor',state.instructor||'— not entered —'],['Course',state.course],['Students',String(st.n)],
+    ['Average',fmt(st.mean,2)],['Median',fmt(st.median,2)],['Pass rate',st.n?fmt(passed/st.n*100,1,'%'):'—']
+  ];
+  $('#reviewSummary').replaceChildren(...items.map(([k,val])=>el('div',{},[el('dt',{text:k}),el('dd',{text:val})])));
+  renderDistribution($('#reviewDist'),v.students,cs.applied,cs.passGrade);
+  $('#reviewScheme').replaceChildren(...cs.applied.map(b=>el('span',{},[el('b',{text:b.grade}),document.createTextNode(`${b.min}–${b.max}`)])));
+
+  const blockers=getFinalizeBlockers();
+  $('#blockers').replaceChildren(...blockers.map(b=>el('li',{},[
+    el('span',{class:`ico ${b.ok?'ico-ok':'ico-err'}`,'aria-hidden':'true',text:b.ok?'✓':'✕'}),
+    el('span',{},[document.createTextNode(b.label),el('span',{class:'sr-only',text:b.ok?' — done':' — not done'}),(!b.ok&&b.fix)?el('span',{class:'hint',style:'display:block',text:b.fix}):null])
+  ])));
+
+  // Change vs previous configuration (default scheme, or the last finalized export)
+  const note=$('#changeNote');
+  note.replaceChildren();
+  if(!schemesEqual(cs.applied,cs.reference)&&st.n){
+    const r=simulateGradeChanges(v.students,cs.reference,cs.applied);
+    note.append(el('div',{class:'change-note'},[
+      el('strong',{text:`${plural(r.changes.length,'student')} will receive ${r.changes.length===1?'a different grade':'different grades'} from ${cs.referenceLabel}.`}),
+      r.transitions.length?el('div',{class:'transitions',style:'margin-top:8px'},r.transitions.slice(0,10).map(t=>el('span',{class:'chip static',text:`${t.from} → ${t.to} · ${t.count}`}))):null
+    ]));
+  }
+  const ready=blockers.every(b=>b.ok);
+  const btn=$('#download');
+  btn.disabled=!ready;
+  const nameOk=blockers.slice(0,5).every(b=>b.ok);
+  $('#reviewConfirm').disabled=!nameOk;
+  if(!nameOk&&state.reviewed){state.reviewed=false;$('#reviewConfirm').checked=false;}
+}
+$('#reviewConfirm').addEventListener('change',e=>{state.reviewed=e.target.checked;renderReview();});
+$$('input[name="fmt"]').forEach(r=>r.addEventListener('change',e=>{
+  state.exportFormat=e.target.value;
+  $('#fmtHint').textContent={csv:'CSV: BITS ID, Course, Total Marks, Grade.',xlsx:'Excel: Grades, Statistics, Grade Distribution and Validation Report sheets.',both:'Downloads the CSV and the Excel report.'}[state.exportFormat];
+}));
+
+/* =====================================================================
+   EXPORT
+   ===================================================================== */
+/** RFC 4180 escaping plus a guard against spreadsheet formula injection. */
+function csvCell(v){
+  let s=v==null?'':String(v);
+  if(/^[=+\-@\t\r]/.test(s)&&!/^-?\d+(\.\d+)?$/.test(s)) s="'"+s;
+  return /[",\r\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s;
+}
+const safeName=s=>String(s).trim().replace(/[^A-Za-z0-9._-]+/g,'_').replace(/^_+|_+$/g,'').slice(0,60)||'course';
+function downloadBlob(blob,name){
+  const a=document.createElement('a');
+  const url=URL.createObjectURL(blob);
+  a.href=url;a.download=name;a.style.display='none';
+  document.body.append(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),4000);
+}
+function buildExportRows(){
+  const cs=courseState();
+  return state.view.students.map(s=>({id:s.id,course:s.course,marks:s.marks,grade:assignGrade(s.marks,cs.applied)}));
+}
+function exportCSV(rows){
+  const cs=courseState();
+  const lines=[
+    ['Instructor',state.instructor],
+    ['Course',state.course],
+    ['Generated',localDateTime()],
+    ['Grading scheme',schemeToText(cs.applied)],
+    [],
+    ['BITS ID','Course','Total Marks','Grade'],
+    ...rows.map(r=>[r.id,r.course,r.marks,r.grade])
+  ];
+  const csv='﻿'+lines.map(r=>r.map(csvCell).join(',')).join('\r\n')+'\r\n';
+  const name=`grades_${safeName(state.course)}_${localDateStamp()}.csv`;
+  downloadBlob(new Blob([csv],{type:'text/csv;charset=utf-8'}),name);
+  return name;
+}
+function exportExcel(rows){
+  if(typeof XLSX==='undefined') throw new Error('SheetJS not loaded');
+  const cs=courseState(),v=state.view,st=v.stats,ds=state.dataset;
+  const dist=calculateGradeDistribution(v.students,cs.applied);
+  const passed=v.students.filter(s=>isPassing(assignGrade(s.marks,cs.applied),cs.passGrade)).length;
+  const round=(x,d=2)=>Number.isFinite(x)?Number(x.toFixed(d)):'';
+  const wb=XLSX.utils.book_new();
+
+  const grades=XLSX.utils.aoa_to_sheet([['BITS ID','Course','Total Marks','Grade'],...rows.map(r=>[r.id,r.course,r.marks,r.grade])]);
+  grades['!cols']=[{wch:18},{wch:28},{wch:12},{wch:8}];
+  XLSX.utils.book_append_sheet(wb,grades,'Grades');
+
+  const stats=XLSX.utils.aoa_to_sheet([
+    ['Grading summary',''],
+    ['Instructor',state.instructor],['Course',state.course],['Generated',localDateTime()],['Source file',ds.fileName],[],
+    ['Statistic','Value'],
+    ['Students graded',st.n],['Average',round(st.mean)],['Median',round(st.median)],['Standard deviation (population)',round(st.std)],
+    ['Minimum',st.min],['Maximum',st.max],[`Pass rate (grade ${cs.passGrade} or above)`,round(passed/st.n*100,1)+'%'],[],
+    ['Grading scheme','',''],['Grade','Min','Max'],...cs.applied.map(b=>[b.grade,b.min,b.max])
+  ]);
+  stats['!cols']=[{wch:34},{wch:26},{wch:8}];
+  XLSX.utils.book_append_sheet(wb,stats,'Statistics');
+
+  const distSheet=XLSX.utils.aoa_to_sheet([['Grade','Min','Max','Students','Percent'],
+    ...cs.applied.map(b=>[b.grade,b.min,b.max,dist.counts[b.grade],round(dist.counts[b.grade]/st.n*100,1)]),
+    ['Total','','',st.n,100]]);
+  distSheet['!cols']=[{wch:8},{wch:6},{wch:6},{wch:10},{wch:9}];
+  XLSX.utils.book_append_sheet(wb,distSheet,'Grade Distribution');
+
+  const relevant=ds.issues.filter(i=>!i.course||i.course===state.course);
+  const valSheet=XLSX.utils.aoa_to_sheet([
+    ['Source file',ds.fileName],['Sheet read',ds.sheetName],['Rows in file',ds.students.length],['Rows for this course',v.all.length],['Rows graded',st.n],[],
+    ['Severity','Row','BITS ID','Course','Problem'],
+    ...(relevant.length?relevant.map(i=>[i.severity,i.row??'',i.id,i.course,i.message]):[['none','','','','No validation issues for this course.']])
+  ]);
+  valSheet['!cols']=[{wch:12},{wch:8},{wch:18},{wch:24},{wch:70}];
+  XLSX.utils.book_append_sheet(wb,valSheet,'Validation Report');
+
+  const out=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+  const name=`grades_${safeName(state.course)}_${localDateStamp()}.xlsx`;
+  downloadBlob(new Blob([out],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),name);
+  return name;
+}
+
+$('#download').addEventListener('click',async()=>{
+  const blockers=getFinalizeBlockers().filter(b=>!b.ok);
+  if(blockers.length){showToast('warning','Not ready to finalize.',blockers[0].fix||blockers[0].label);return;}
+  const btn=$('#download');
+  btn.classList.add('is-loading');btn.setAttribute('aria-busy','true');
+  await nextFrame();
+  const files=[];
+  try{
+    const rows=buildExportRows();
+    if(state.exportFormat!=='xlsx') files.push(exportCSV(rows));
+    if(state.exportFormat!=='csv'){ if(files.length) await sleep(350); files.push(exportExcel(rows)); }
+  }catch(e){
+    console.error('[export] failed',e);
+    btn.classList.remove('is-loading');btn.removeAttribute('aria-busy');
+    showToast('error','Export failed.','The grade file could not be created. Please try again.');
+    return;
+  }
+  btn.classList.remove('is-loading');btn.removeAttribute('aria-busy');
+
+  // Finalization bookkeeping (preserves the original timed thank-you message).
+  state.finalizeCount++;
+  pauseTimer();
+  const elapsed=timerElapsed();
+  const minT=Math.floor(elapsed/60000),secT=Math.floor((elapsed%60000)/1000);
+  const cs=courseState();
+  cs.finalized=true;
+  cs.reference=cloneScheme(cs.applied);
+  cs.referenceLabel='your last finalized export';
+  state.unsaved=false;
+  const msg=state.finalizeCount===1
+    ?`You completed grading in ${minT} min ${secT} sec in your first attempt.`
+    :`You took a total of ${minT} min ${secT} sec to complete the grading in your ${ordinal(state.finalizeCount)} attempt.`;
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('class','check-anim');svg.setAttribute('viewBox','0 0 36 36');svg.setAttribute('aria-hidden','true');
+  svg.innerHTML='<circle cx="18" cy="18" r="16"/><path d="M11 18.5l5 5 9-10"/>';
+  $('#thankyou').replaceChildren(el('div',{class:'done-box',role:'status'},[
+    svg,
+    el('div',{},[el('p',{},el('strong',{text:`Grades finalized for ${state.course}.`})),el('p',{text:msg}),el('p',{class:'hint',text:`Downloaded: ${files.join(', ')}`})])
+  ]));
+  renderCourseOptions();
+  renderReview();
+  updateStatusPill();
+  showToast('success','Grades finalized and downloaded.',files.join(', '));
+});
+
+/* =====================================================================
+   HEADER STATUS
+   ===================================================================== */
+function updateStatusPill(){
+  const pill=$('#statusPill'),txt=$('#statusText');
+  const ds=state.dataset,cs=courseState();
+  let s='idle',t='No data';
+  if(ds){
+    if(ds.errorCount){s='error';t=`${plural(ds.errorCount,'data error')}`;}
+    else if(ds.warningCount){s='warning';t=`${plural(ds.warningCount,'warning')}`;}
+    else{s='ready';t='Data ready';}
+    if(cs&&state.course){
+      if(isSimulating()){s='warning';t='Simulating changes';}
+      else if(cs.finalized&&!state.unsaved){s='done';t='Finalized';}
+    }
+  }
+  pill.dataset.state=s;txt.textContent=t;
+}
+
+/* =====================================================================
+   TOP-LEVEL RENDERING
+   ===================================================================== */
+function renderCourse({animate=true}={}){
+  buildCourseView();
+  renderEmptyState();
+  if(!state.view){updateStatusPill();return;}
+  const cs=courseState();
+  renderCourseBanner();
+  renderKPIs();
+  renderDistribution($('#gradeDist'),state.view.students,cs.applied,cs.passGrade);
+  syncEditorInputs();
+  const res=renderSchemeValidation();
+  renderScale(res);
+  renderSimulator();
+  drawHistogram({animate});
+  renderStudentTable();
+  renderReview();
+  updateStatusPill();
+}
+function renderAll(){
+  renderEmptyState();
+  if(state.course) renderCourse(); else updateStatusPill();
+}
+
+/* =====================================================================
+   SESSION INPUTS
+   ===================================================================== */
+let welcomeTimer=null;
+function renderWelcome(){
+  const w=$('#welcome');
+  const text=state.instructor?`Welcome, ${state.instructor.toUpperCase()}.${state.course?' Please review and finalize grading.':''}`:'';
+  if(w.textContent===text) return;
+  w.textContent=text;
+  w.classList.remove('show');void w.offsetWidth;if(text) w.classList.add('show');
+}
+$('#instructor').addEventListener('input',e=>{
+  state.instructor=e.target.value.trim().replace(/\s+/g,' ');
+  e.target.removeAttribute('aria-invalid');
+  $('#instructorHint').classList.remove('error');
+  $('#instructorHint').textContent='Required. Appears on the exported grade sheet.';
+  safeStorage.set(NAME_KEY,state.instructor);
+  updateCourseAvailability();
+  if(state.course){markDirty();renderReview();}
+  else renderEmptyState();
+  clearTimeout(welcomeTimer);
+  welcomeTimer=setTimeout(renderWelcome,350);
+});
+$('#instructor').addEventListener('blur',()=>{
+  if(!state.instructor&&state.dataset){
+    $('#instructor').setAttribute('aria-invalid','true');
+    const h=$('#instructorHint');h.classList.add('error');h.textContent='Instructor name is required before grading.';
+  }
+});
+$('#course').addEventListener('change',e=>{
+  if(!state.instructor){
+    // Instructor name requirement (original behaviour) — inline error + toast instead of alert().
+    e.target.value=state.course||'';
+    $('#instructor').setAttribute('aria-invalid','true');
+    const h=$('#instructorHint');h.classList.add('error');h.textContent='Please enter instructor name first.';
+    $('#instructor').focus();
+    showToast('warning','Please enter instructor name first.','A name is required before grading a course.',{duration:3500});
+    return;
+  }
+  state.course=e.target.value;
+  state.reviewed=false;$('#reviewConfirm').checked=false;
+  $('#thankyou').replaceChildren();
+  resetTableFilters(false);
+  if(state.course){
+    courseState();
+    startTimer();
+    state.unsaved=true;
+  }
+  renderWelcome();
+  renderCourse({animate:true});
+});
+
+/* ---------- Upload wiring ---------- */
+$('#uploadBtn').addEventListener('click',()=>$('#file').click());
+$('#file').addEventListener('change',e=>{
+  const f=e.target.files&&e.target.files[0];
+  e.target.value='';   // allow re-uploading the same (corrected) file
+  handleFile(f);
+});
+(function wireDropzone(){
+  const dz=$('#dropzone');
+  ['dragenter','dragover'].forEach(t=>dz.addEventListener(t,e=>{e.preventDefault();dz.classList.add('drag');}));
+  ['dragleave','dragend'].forEach(t=>dz.addEventListener(t,e=>{if(!dz.contains(e.relatedTarget)) dz.classList.remove('drag');}));
+  dz.addEventListener('drop',e=>{
+    e.preventDefault();dz.classList.remove('drag');
+    const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
+    handleFile(f);
+  });
+  // Dropping a file elsewhere on the page should not navigate away from the console.
+  window.addEventListener('dragover',e=>e.preventDefault());
+  window.addEventListener('drop',e=>e.preventDefault());
+})();
+
+$('#templateBtn').addEventListener('click',()=>{
+  if(typeof XLSX==='undefined'){showToast('error','Template unavailable.','The Excel library could not be loaded. Check your connection.');return;}
+  const ws=XLSX.utils.aoa_to_sheet([['BITS ID','Course','Total Marks'],['2024A7PS0001P','Course A',82],['2024A7PS0002P','Course A',71],['2024A7PS0003P','Course A',64]]);
+  ws['!cols']=[{wch:18},{wch:24},{wch:12}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Marks');
+  downloadBlob(new Blob([XLSX.write(wb,{bookType:'xlsx',type:'array'})],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),'marks_template.xlsx');
+  showToast('success','Template downloaded.','Fill it in and upload it here.');
+});
+$('#helpBtn').addEventListener('click',()=>openDialog($('#helpDialog')));
+
+/* Warn before leaving with unexported grading work. */
+window.addEventListener('beforeunload',e=>{
+  if(state.course&&state.unsaved){e.preventDefault();e.returnValue='';}
+});
+
+/* Surface unexpected errors politely; keep details in the console. */
+window.addEventListener('error',e=>{console.error('[console] unexpected error',e.error||e.message);});
+window.addEventListener('unhandledrejection',e=>{console.error('[console] unhandled rejection',e.reason);showToast('error','Something went wrong.','Please try that again. Details are in the browser console.');});
+
+/* =====================================================================
+   INIT
+   ===================================================================== */
+(function init(){
+  buildSchemeEditor();
+  setTheme(document.documentElement.getAttribute('data-theme'),{persist:false});
+  const savedName=safeStorage.get(NAME_KEY);
+  if(savedName){$('#instructor').value=savedName;state.instructor=savedName.trim();renderWelcome();}
+  renderCourseOptions();
+  renderEmptyState();
+  renderTimer();
+  updateStatusPill();
+  // Follow OS theme changes only when the user hasn't picked one explicitly.
+  if(window.matchMedia&&!safeStorage.get(THEME_KEY)){
+    const mq=matchMedia('(prefers-color-scheme: dark)');
+    (mq.addEventListener?mq.addEventListener.bind(mq,'change'):mq.addListener.bind(mq))(ev=>{if(!safeStorage.get(THEME_KEY)) setTheme(ev.matches?'dark':'light',{persist:false});});
+  }
+})();
+</script>
+</body>
+</html>
